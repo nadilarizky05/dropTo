@@ -109,4 +109,4 @@ git clone https://github.com/nadilarizky05/dropTo.git
 
 ## Author
 
-Made by [Nadila Rizky Amelia](https://github.com/nadilarizky05) (Learner at Apple Developer Academy Bali, Programming Teacher at Timedoor Academy)
+Made by [Nadila Rizky Amelia] (https://github.com/nadilarizky05) and [Az Zahra Azizah Hanum] (https://github.com/azhanumm) (Learner at Apple Developer Academy Bali)
