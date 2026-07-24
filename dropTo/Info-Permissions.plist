@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Info-Permissions.plist
+
+  Xcode's modern project format doesn't use a separate Info.plist file
+  by default — instead you add these as "Custom iOS Target Properties"
+  inside your project's Info tab. This file just lists exactly what to
+  add and why, so you can copy the values across easily.
+
+  HOW TO ADD THESE (step-by-step, beginner friendly):
+  1. Click on the blue "dropTo" project icon at the very top of the
+     left sidebar in Xcode.
+  2. Select the "dropTo" TARGET (not the project) in the next column.
+  3. Click the "Info" tab along the top.
+  4. Hover under the last row and click the "+" that appears to add
+     a new row. Add each key below with its matching text as the value.
+-->
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>dropTo needs the camera so you can take new photos directly into your albums.</string>
+
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>dropTo shows and organizes the photos already in your library into custom albums.</string>
+
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>dropTo saves new photos you take into your Photos library.</string>
+</dict>
+</plist>

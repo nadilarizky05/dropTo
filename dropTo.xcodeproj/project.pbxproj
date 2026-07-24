@@ -254,6 +254,10 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "dropTo needs the camera so you can take new photos directly into your albums.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dropTo needs the microphone to record audio when you take a video.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "dropTo saves new photos you take into your Photos library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "dropTo shows and organizes the photos already in your library into custom albums.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -298,6 +302,10 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "dropTo needs the camera so you can take new photos directly into your albums.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dropTo needs the microphone to record audio when you take a video.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "dropTo saves new photos you take into your Photos library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "dropTo shows and organizes the photos already in your library into custom albums.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
