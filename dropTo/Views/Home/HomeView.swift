@@ -2,28 +2,19 @@
 //  HomeView.swift
 //  dropTo
 //
-//  The "All Albums" tab: a grid of albums.
-//  - "Unorganized Items" (things not filed into any album yet) sits
-//    near the top; "Recently Deleted" at the very end — both pinned,
-//    like Apple's own Photos app.
-//  - Every other tile is a user-created album, showing its most recent
-//    item as the cover.
-//  - "Select" (top right) lets you multi-select your own albums and
-//    delete them, with a confirmation first since deleting an album
-//    also sends everything inside it to Recently Deleted.
-//  - Long-press an album for Rename / Delete, or drag it to reorder.
-//
 
 import SwiftUI
 import Photos
 import UniformTypeIdentifiers
 
 struct HomeView: View {
-    @EnvironmentObject private var albumStore: AlbumStore
-    @StateObject private var libraryManager = PhotoLibraryManager.shared
+    @EnvironmentObject private var dataService: DataService
+    @StateObject private var libraryManager = PhotoLibraryService.shared
 
+    @State private var albums: [Album] = []
+    @State private var deletedItems: [DeletedItem] = []
     @State private var showNewAlbumSheet = false
-    @State private var selectedAlbum: AlbumModel?
+    @State private var selectedAlbum: Album?
     @State private var showUnorganizedItems = false
     @State private var showRecentlyDeleted = false
 
@@ -32,29 +23,28 @@ struct HomeView: View {
     @State private var showDeleteConfirmation = false
 
     @State private var draggingAlbumID: UUID?
-    @State private var albumToRename: AlbumModel?
+    @State private var albumToRename: Album?
     @State private var renameText = ""
+    
+    @AppStorage("dropTo.colorScheme") private var colorSchemePreference: String = "auto"
+    @Environment(\.colorScheme) private var systemColorScheme
 
-    private let columns = [
+    private let columns: [GridItem] = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
     ]
-
-    /// Newest item in "Recently Deleted", used as that tile's cover
-    /// instead of a plain trash icon.
+    
     private var mostRecentlyDeletedAsset: PHAsset? {
-        guard let identifier = albumStore.deletedItems.first?.assetIdentifier else { return nil }
-        return PhotoLibraryManager.shared.fetchAssets(withIdentifiers: [identifier]).first
+        guard let identifier = deletedItems.first?.assetIdentifier else { return nil }
+        return PhotoLibraryService.shared.fetchAssets(withIdentifiers: [identifier]).first
     }
 
-    /// Every real photo/video on the device that ISN'T yet filed into an
-    /// album, and isn't sitting in Recently Deleted either.
     private var unorganizedAssets: [PHAsset] {
         guard libraryManager.isAuthorized else { return [] }
-        let deletedIdentifiers = Set(albumStore.deletedItems.map(\.assetIdentifier))
-        let organizedIdentifiers = Set(albumStore.albums.flatMap(\.assetIdentifiers))
-        return PhotoLibraryManager.shared
+        let deletedIdentifiers = Set(deletedItems.map(\.assetIdentifier))
+        let organizedIdentifiers = Set(albums.flatMap(\.assetIdentifiers))
+        return PhotoLibraryService.shared
             .fetchAllAssets()
             .filter { !deletedIdentifiers.contains($0.localIdentifier) && !organizedIdentifiers.contains($0.localIdentifier) }
     }
@@ -64,96 +54,67 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 20) {
-                    // "New Album" sits inside the grid, same size as every
-                    // other tile. Tapping it while selecting exits
-                    // selection instead of opening the sheet.
-                    NewAlbumTile()
-                        .onTapGesture {
-                            if isSelecting {
-                                isSelecting = false
-                                selectedAlbumIDs.removeAll()
-                            } else {
-                                showNewAlbumSheet = true
-                            }
+            contentView
+        }
+    }
+    
+    @ViewBuilder
+    private var contentView: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 20) {
+                NewAlbumTile()
+                    .onTapGesture {
+                        if isSelecting {
+                            isSelecting = false
+                            selectedAlbumIDs.removeAll()
+                        } else {
+                            showNewAlbumSheet = true
                         }
-
-                    // Pinned system tile — never selectable/deletable.
-                    SystemTileView(
-                        title: "Unorganized Items",
-                        subtitle: "\(unorganizedCount) items",
-                        systemImage: "tray.full.fill",
-                        tint: .blue,
-                        coverAsset: unorganizedCoverAsset
-                    )
-                    .onTapGesture { if !isSelecting { showUnorganizedItems = true } }
-
-                    // User-created albums — these are the ones Select mode
-                    // lets you pick and delete. Long-press for Rename /
-                    // Delete, or drag to reorder.
-                    ForEach(albumStore.albums) { album in
-                        AlbumGridCell(
-                            album: album,
-                            isSelecting: isSelecting,
-                            isSelected: selectedAlbumIDs.contains(album.id)
-                        )
-                        .onTapGesture {
-                            if isSelecting {
-                                toggle(album.id)
-                            } else {
-                                selectedAlbum = album
-                            }
-                        }
-                        .contextMenu {
-                            Button {
-                                albumToRename = album
-                                renameText = album.title
-                            } label: {
-                                Label("Rename", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                albumStore.deleteAlbum(album)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        .onDrag {
-                            draggingAlbumID = album.id
-                            return NSItemProvider(object: album.id.uuidString as NSString)
-                        }
-                        .onDrop(
-                            of: [.text],
-                            delegate: AlbumDropDelegate(
-                                targetAlbum: album,
-                                albumStore: albumStore,
-                                draggingAlbumID: $draggingAlbumID
-                            )
-                        )
                     }
+                
+                SystemTileView(
+                    title: "Unorganized Items",
+                    subtitle: "\(unorganizedCount) items",
+                    systemImage: "tray.full.fill",
+                    tint: .blue,
+                    coverAsset: unorganizedCoverAsset
+                )
+                .onTapGesture { if !isSelecting { showUnorganizedItems = true } }
 
-                    // "Recently Deleted" — always last, never selectable.
-                    SystemTileView(
-                        title: "Recently Deleted",
-                        subtitle: "\(albumStore.deletedItems.count) items",
-                        systemImage: "trash",
-                        tint: .gray,
-                        coverAsset: mostRecentlyDeletedAsset
-                    )
-                    .onTapGesture { if !isSelecting { showRecentlyDeleted = true } }
+                ForEach(albums) { album in
+                    albumCell(for: album)
                 }
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+
+                SystemTileView(
+                    title: "Recently Deleted",
+                    subtitle: "\(deletedItems.count) items",
+                    systemImage: "trash",
+                    tint: .gray,
+                    coverAsset: mostRecentlyDeletedAsset
+                )
+                .onTapGesture { if !isSelecting { showRecentlyDeleted = true } }
             }
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+        }
             .navigationTitle("dropTo")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        toggleColorScheme()
+                    } label: {
+                        Image(systemName: colorSchemeIcon)
+                            .font(.system(size: 18))
+                    }
+                }
+                
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(isSelecting ? "Cancel" : "Select") {
                         isSelecting.toggle()
                         selectedAlbumIDs.removeAll()
                     }
-                    .disabled(albumStore.albums.isEmpty && !isSelecting)
+                    .disabled(albums.isEmpty && !isSelecting)
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -167,18 +128,19 @@ struct HomeView: View {
             ) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) {
-                    for album in albumStore.albums where selectedAlbumIDs.contains(album.id) {
-                        albumStore.deleteAlbum(album)
+                    for album in albums where selectedAlbumIDs.contains(album.id) {
+                        dataService.deleteAlbum(album)
                     }
                     selectedAlbumIDs.removeAll()
                     isSelecting = false
+                    loadData()
                 }
             } message: {
                 Text("Everything inside will move to Recently Deleted. This won't remove the photos from your device.")
             }
             .alert(
                 "Rename Album",
-                isPresented: Binding(
+                isPresented: Binding<Bool>(
                     get: { albumToRename != nil },
                     set: { if !$0 { albumToRename = nil } }
                 )
@@ -187,13 +149,15 @@ struct HomeView: View {
                 Button("Cancel", role: .cancel) { albumToRename = nil }
                 Button("Save") {
                     if let album = albumToRename {
-                        albumStore.renameAlbum(album, to: renameText)
+                        dataService.renameAlbum(album, to: renameText)
                     }
                     albumToRename = nil
                 }
             }
             .sheet(isPresented: $showNewAlbumSheet) {
-                NewAlbumSheet()
+                NewAlbumSheet(dataService: dataService) { _ in
+                    loadData()
+                }
             }
             .navigationDestination(item: $selectedAlbum) { album in
                 AlbumDetailView(album: album)
@@ -207,6 +171,52 @@ struct HomeView: View {
             .task {
                 libraryManager.requestAccessIfNeeded()
             }
+            .onAppear {
+                loadData()
+            }
+            .onReceive(dataService.$lastUpdate) { _ in
+                loadData()
+            }
+    }
+    
+    private func loadData() {
+        albums = dataService.fetchAlbums()
+        deletedItems = dataService.fetchDeletedItems()
+    }
+    
+    //============================================================================
+    // FUNCTION: TOGGLE COLOR SCHEME
+    //============================================================================
+    // TOGGLE ANTARA AUTO → DARK → LIGHT → DARK → LIGHT ...
+    
+    private func toggleColorScheme() {
+        switch colorSchemePreference {
+        case "auto":
+            colorSchemePreference = "dark"
+        case "dark":
+            colorSchemePreference = "light"
+        case "light":
+            colorSchemePreference = "dark"
+        default:
+            colorSchemePreference = "dark"
+        }
+    }
+    
+    //============================================================================
+    // COMPUTED PROPERTY: COLOR SCHEME ICON
+    //============================================================================
+    // ICON BUAT BUTTON (AUTO = CIRCLE, DARK = MOON, LIGHT = SUN)
+    
+    private var colorSchemeIcon: String {
+        switch colorSchemePreference {
+        case "auto":
+            return "circle.lefthalf.filled"
+        case "dark":
+            return "moon.fill"
+        case "light":
+            return "sun.max.fill"
+        default:
+            return "circle.lefthalf.filled"
         }
     }
 
@@ -240,12 +250,50 @@ struct HomeView: View {
             selectedAlbumIDs.insert(id)
         }
     }
+    
+    @ViewBuilder
+    private func albumCell(for album: Album) -> some View {
+        AlbumGridCell(
+            album: album,
+            isSelecting: isSelecting,
+            isSelected: selectedAlbumIDs.contains(album.id)
+        )
+        .onTapGesture {
+            if isSelecting {
+                toggle(album.id)
+            } else {
+                selectedAlbum = album
+            }
+        }
+        .contextMenu {
+            Button {
+                albumToRename = album
+                renameText = album.title
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                dataService.deleteAlbum(album)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .onDrag {
+            draggingAlbumID = album.id
+            return NSItemProvider(object: album.id.uuidString as NSString)
+        }
+        .onDrop(
+            of: [.text],
+            delegate: AlbumDropDelegate(
+                targetAlbum: album,
+                dataService: dataService,
+                draggingAlbumID: $draggingAlbumID,
+                albums: $albums
+            )
+        )
+    }
 }
 
-// MARK: - Subviews
-
-/// The "create album" tile — same square size as every other tile in
-/// the grid, so everything lines up neatly in rows.
 private struct NewAlbumTile: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -263,16 +311,12 @@ private struct NewAlbumTile: View {
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
 
-            // Invisible placeholder — every other tile has a second line
-            // ("12 items"), so this keeps all tiles the same height and
-            // stops the grid rows from looking uneven.
             Text(" ")
                 .font(.caption2)
         }
     }
 }
 
-/// A pinned tile like "Unorganized Items" or "Recently Deleted".
 private struct SystemTileView: View {
     let title: String
     let subtitle: String
@@ -306,17 +350,13 @@ private struct SystemTileView: View {
     }
 }
 
-/// A normal user album cell — cover photo = most recent item added.
-/// The selection badge/ring is applied directly to the image square
-/// (not the whole card), so it sits right on the photo's corner —
-/// matching the native Photos app look.
 private struct AlbumGridCell: View {
-    let album: AlbumModel
+    let album: Album
     var isSelecting: Bool = false
     var isSelected: Bool = false
 
     var coverAsset: PHAsset? {
-        PhotoLibraryManager.shared
+        PhotoLibraryService.shared
             .fetchAssets(withIdentifiers: album.assetIdentifiers)
             .first
     }
@@ -350,12 +390,11 @@ private struct AlbumGridCell: View {
     }
 }
 
-/// Drop handler that reorders `albumStore.albums` while a tile is being
-/// dragged over another tile.
 private struct AlbumDropDelegate: DropDelegate {
-    let targetAlbum: AlbumModel
-    let albumStore: AlbumStore
+    let targetAlbum: Album
+    let dataService: DataService
     @Binding var draggingAlbumID: UUID?
+    @Binding var albums: [Album]
 
     func performDrop(info: DropInfo) -> Bool {
         draggingAlbumID = nil
@@ -365,20 +404,18 @@ private struct AlbumDropDelegate: DropDelegate {
     func dropEntered(info: DropInfo) {
         guard let draggingID = draggingAlbumID,
               draggingID != targetAlbum.id,
-              let fromIndex = albumStore.albums.firstIndex(where: { $0.id == draggingID }),
-              let toIndex = albumStore.albums.firstIndex(where: { $0.id == targetAlbum.id })
+              let fromIndex = albums.firstIndex(where: { $0.id == draggingID }),
+              let toIndex = albums.firstIndex(where: { $0.id == targetAlbum.id })
         else { return }
 
         withAnimation {
-            albumStore.moveAlbum(
-                fromOffsets: IndexSet(integer: fromIndex),
-                toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
-            )
+            albums.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
         }
     }
 }
 
 #Preview {
     HomeView()
-        .environmentObject(AlbumStore())
+        .environmentObject(DataService())
 }
+

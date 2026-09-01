@@ -4,28 +4,27 @@
 //
 //  Created by Nadila Rizky Amelia on 20/07/26.
 //
-
-//
-//  AllItemsView.swift
-//  dropTo
-//
-//  The "All Items" tab: every photo and video on the device, sorted
-//  newest first — organized into albums or not, it doesn't matter here.
-//  Tapping an item opens it full-size, but you can only swipe left/right
-//  to browse — no swipe-to-delete/keep here, since this isn't tied to
-//  any particular album.
-//
+//============================================================================
+// VIEW: ALL ITEMS
+//============================================================================
+// HALAMAN SEMUA FOTO/VIDEO DI DEVICE (EXCLUDE YANG UDAH DIHAPUS)
 
 import SwiftUI
 import Photos
 
 struct AllItemsView: View {
-    @EnvironmentObject private var albumStore: AlbumStore
-    @StateObject private var libraryManager = PhotoLibraryManager.shared
-
-    @State private var assets: [PHAsset] = []
-    @State private var selectedAsset: PHAsset?
-
+    
+    //============================================================================
+    // PROPERTIES
+    //============================================================================
+    
+    @EnvironmentObject private var dataService: DataService
+    @StateObject private var libraryManager = PhotoLibraryService.shared
+    
+    @State private var assets: [PHAsset] = []          // LIST SEMUA FOTO/VIDEO
+    @State private var selectedAsset: PHAsset?         // FOTO YANG DIPILIH (NAVIGATION)
+    @State private var deletedItems: [DeletedItem] = [] // LIST FOTO DI TRASH
+    
     private let columns = [
         GridItem(.flexible(), spacing: 2),
         GridItem(.flexible(), spacing: 2),
@@ -55,7 +54,9 @@ struct AllItemsView: View {
             .navigationTitle("All Items")
             .navigationBarTitleDisplayMode(.large)
             .onAppear { reload() }
-            .onChange(of: albumStore.deletedItems) { _, _ in reload() }
+            .onReceive(dataService.$lastUpdate) { _ in
+                reload()
+            }
             .task {
                 libraryManager.requestAccessIfNeeded()
                 reload()
@@ -66,10 +67,16 @@ struct AllItemsView: View {
         }
     }
 
+    //============================================================================
+    // FUNCTION: RELOAD
+    //============================================================================
+    // AMBIL SEMUA FOTO/VIDEO DI DEVICE, FILTER YANG SUDAH DIHAPUS
+    
     private func reload() {
         guard libraryManager.isAuthorized else { return }
-        let deletedIdentifiers = Set(albumStore.deletedItems.map(\.assetIdentifier))
-        assets = PhotoLibraryManager.shared
+        deletedItems = dataService.fetchDeletedItems()
+        let deletedIdentifiers = Set(deletedItems.map(\.assetIdentifier))
+        assets = PhotoLibraryService.shared
             .fetchAllAssets()
             .filter { !deletedIdentifiers.contains($0.localIdentifier) }
     }
@@ -77,5 +84,5 @@ struct AllItemsView: View {
 
 #Preview {
     AllItemsView()
-        .environmentObject(AlbumStore())
+        .environmentObject(DataService())
 }

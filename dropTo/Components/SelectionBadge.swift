@@ -1,19 +1,7 @@
-//
-//  SelectionBadge.swift
-//  dropTo
-//
-//  A consistent, clearly-readable "is this selected?" indicator, reused
-//  anywhere the app has a multi-select grid (albums, photos, deleted
-//  items). Selected = filled blue circle + checkmark. Unselected = a
-//  plain circle outline with a solid white backing, so it stays visible
-//  no matter how bright or dark the thumbnail underneath is.
-//
-
 import SwiftUI
 
 struct SelectionBadge: View {
     let isSelected: Bool
-
     var body: some View {
         ZStack {
             Circle()
@@ -34,12 +22,10 @@ struct SelectionBadge: View {
     }
 }
 
-/// Applies the standard "dim what's NOT selected, ring what IS" look
-/// used across every select-mode grid in the app.
 struct SelectionOverlay: ViewModifier {
     let isSelecting: Bool
     let isSelected: Bool
-
+    
     func body(content: Content) -> some View {
         content
             .overlay(

@@ -2,40 +2,15 @@
 //  PhotoDetailView.swift
 //  dropTo
 //
-//  Shows one item at a time (photo OR video), full-size, keeping its
-//  real portrait/landscape shape. Swiping left/right ALWAYS just
-//  browses between items — identical feel everywhere (same as "All
-//  Items"), no accidental deletes from a swipe.
-//
-//  Three top-level modes, differing only in what other actions are on
-//  offer:
-//   - .album: hold (long-press) a photo to reveal a "Delete" button,
-//     then drag down onto it to confirm — like physically dragging the
-//     item into a trash slot. Letting go anywhere else cancels safely.
-//   - .recentlyDeleted: explicit Recover / Delete Forever buttons at
-//     the bottom (these items are already on their way out).
-//   - .browseOnly: just browsing, no destructive actions at all. Used
-//     by "All Items".
-//
-//  Every photo can also be pinched to zoom in/out, and double-tapped to
-//  reset back to fit-to-screen.
-//
 
 import SwiftUI
 import Photos
 import AVKit
 import UIKit
 
-/// What this screen is being shown for — changes which actions make sense.
-enum PhotoDetailMode {
-    case album(AlbumModel)   // hold-and-drag-to-delete is available
-    case recentlyDeleted     // browsing the trash: recover or delete forever
-    case browseOnly          // plain browsing, no destructive actions at all
-}
-
 struct PhotoDetailView: View {
     let mode: PhotoDetailMode
-    @EnvironmentObject private var albumStore: AlbumStore
+    @EnvironmentObject private var dataService: DataService
     @Environment(\.dismiss) private var dismiss
     
     @State private var assets: [PHAsset]
@@ -45,6 +20,9 @@ struct PhotoDetailView: View {
     @State private var lastDeletedIndex: Int?
     @State private var favoriteOverrides: [String: Bool] = [:]
     @State private var showMoveSheet = false
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
+    @State private var isLoadingShare = false
 
     init(assets: [PHAsset], startingAt startAsset: PHAsset, mode: PhotoDetailMode) {
         _assets = State(initialValue: assets)
@@ -61,9 +39,16 @@ struct PhotoDetailView: View {
         if case .album = mode { return true }
         return false
     }
+    
+    private var isBrowseMode: Bool {
+        if case .browseOnly = mode { return true }
+        return false
+    }
+    
+    private var showsActionBar: Bool {
+        isAlbumMode || isBrowseMode
+    }
 
-    /// True only for Recently Deleted — controls the Recover / Delete
-    /// Forever bar at the bottom.
     private var showsRecentlyDeletedActions: Bool {
         if case .recentlyDeleted = mode { return true }
         return false
@@ -81,20 +66,15 @@ struct PhotoDetailView: View {
                     emptyState
                     Spacer()
                 } else {
-                    // One consistent browsing mechanism everywhere — the
-                    // exact same TabView used by "All Items", so paging
-                    // feels identical no matter which screen you're in.
-                    // (Hold-to-delete is paused for now while we make sure
-                    // plain swiping is 100% smooth first.)
                     TabView(selection: $currentIndex) {
                         ForEach(Array(assets.enumerated()), id: \.offset) { index, asset in
-                            MediaPageView(asset: asset)
+                            MediaPageView(asset: asset, isActive: index == currentIndex)
                                 .tag(index)
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
 
-                    if isAlbumMode {
+                    if showsActionBar {
                         Text("Swipe to browse  •  use \"•••\" to delete")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.6))
@@ -103,12 +83,8 @@ struct PhotoDetailView: View {
                 }
             }
 
-            if isAlbumMode, currentAsset != nil {
+            if showsActionBar, currentAsset != nil {
                 albumActionBar
-            }
-
-            if showsRecentlyDeletedActions, currentAsset != nil {
-                recentlyDeletedActionBar
             }
 
             if showUndoToast {
@@ -116,25 +92,49 @@ struct PhotoDetailView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-                .toolbar(.hidden, for: .tabBar)
-                .sheet(isPresented: $showMoveSheet) {
-                    if let asset = currentAsset {
-                        MoveToAlbumSheet(
-                            sourceAlbum: {
-                                if case .album(let album) = mode { return album }
-                                return nil
-                            }(),
-                            identifiersToMove: [asset.localIdentifier],
-                            onMoved: { advanceOrDismiss() }
-                        )
+        .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            if showsRecentlyDeletedActions, currentAsset != nil {
+                ToolbarItemGroup(placement: .bottomBar) {
+                    Button {
+                        performRecover()
+                    } label: {
+                        Label("Recover", systemImage: "arrow.uturn.backward")
+                    }
+                    
+                    Spacer()
+                    
+                    Button(role: .destructive) {
+                        performDeleteForever()
+                    } label: {
+                        Label("Delete Forever", systemImage: "trash.fill")
                     }
                 }
+            }
+        }
+        .toolbarBackground(showsRecentlyDeletedActions ? .visible : .hidden, for: .bottomBar)
+        .sheet(isPresented: $showMoveSheet) {
+            if let asset = currentAsset {
+                MoveToAlbumSheet(
+                    sourceAlbum: {
+                        if case .album(let album) = mode { return album }
+                        return nil
+                    }(),
+                    identifiersToMove: [asset.localIdentifier],
+                    dataService: dataService,
+                    onMoved: { advanceOrDismiss() }
+                )
+            }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            shareItems = []
+        } content: {
+            if !shareItems.isEmpty {
+                ActivityViewController(items: shareItems)
+            }
+        }
     }
 
-    // MARK: - Header
-
-    /// Shown at all times — including the "All caught up" empty state —
-    /// so there's always a way back.
     private func header(for asset: PHAsset?) -> some View {
         HStack {
             Button {
@@ -163,8 +163,30 @@ struct PhotoDetailView: View {
 
             Spacer()
 
-            
-            Color.clear.frame(width: 36, height: 36)
+            if asset != nil {
+                Button {
+                    performShare()
+                } label: {
+                    if isLoadingShare {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 0.5))
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(.white)
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 0.5))
+                    }
+                }
+                .disabled(isLoadingShare)
+            } else {
+                Color.clear.frame(width: 36, height: 36)
+            }
         }
         .padding(.horizontal)
         .padding(.top, 8)
@@ -180,17 +202,94 @@ struct PhotoDetailView: View {
         }
     }
 
-    // MARK: - Actions (album mode)
+    private func performShare() {
+        guard let asset = currentAsset else { return }
+        isLoadingShare = true
+        
+        Task {
+            do {
+                if asset.mediaType == .video {
+                    print("📹 Starting video share for asset: \(asset.localIdentifier)")
+                    let options = PHVideoRequestOptions()
+                    options.isNetworkAccessAllowed = true
+                    options.deliveryMode = .highQualityFormat
+                    options.version = .original
+                    
+                    let avAsset = await withCheckedContinuation { (continuation: CheckedContinuation<AVAsset?, Never>) in
+                        PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in
+                            print("📹 Got AVAsset: \(avAsset != nil)")
+                            continuation.resume(returning: avAsset)
+                        }
+                    }
+                    
+                    if let urlAsset = avAsset as? AVURLAsset {
+                        print("📹 Video URL: \(urlAsset.url)")
+                        let tempURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent(UUID().uuidString)
+                            .appendingPathExtension("mov")
+                        
+                        try? FileManager.default.copyItem(at: urlAsset.url, to: tempURL)
+                        
+                        await MainActor.run {
+                            print("📹 Setting shareItems with tempURL")
+                            self.shareItems = [tempURL]
+                            self.showShareSheet = true
+                            self.isLoadingShare = false
+                        }
+                    } else {
+                        print("❌ Failed to get URL asset")
+                        await MainActor.run {
+                            self.isLoadingShare = false
+                        }
+                    }
+                } else {
+                    print("📷 Starting photo share for asset: \(asset.localIdentifier)")
+                    let options = PHImageRequestOptions()
+                    options.isNetworkAccessAllowed = true
+                    options.deliveryMode = .highQualityFormat
+                    options.isSynchronous = false
+                    options.version = .current
+                    
+                    let imageData = await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+                        PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
+                            print("📷 Got image data: \(data?.count ?? 0) bytes")
+                            continuation.resume(returning: data)
+                        }
+                    }
+                    
+                    if let imageData = imageData, let image = UIImage(data: imageData) {
+                        print("📷 Created UIImage: \(image.size)")
+                        await MainActor.run {
+                            print("📷 Setting shareItems with image")
+                            self.shareItems = [image]
+                            self.showShareSheet = true
+                            self.isLoadingShare = false
+                        }
+                    } else {
+                        print("❌ Failed to create image from data")
+                        await MainActor.run {
+                            self.isLoadingShare = false
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoadingShare = false
+                }
+                print("❌ Share error: \(error)")
+            }
+        }
+    }
 
     private func performDelete(_ asset: PHAsset) {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
 
-        let sourceAlbum: AlbumModel? = {
-            if case .album(let album) = mode { return album }
+        let sourceAlbumID: UUID? = {
+            if case .album(let album) = mode { return album.id }
             return nil
         }()
-        albumStore.softDelete(asset.localIdentifier, sourceAlbum: sourceAlbum)
+        dataService.softDelete(asset.localIdentifier, sourceAlbumID: sourceAlbumID)
 
         lastDeletedAsset = asset
         lastDeletedIndex = currentIndex
@@ -211,13 +310,19 @@ struct PhotoDetailView: View {
         VStack {
             Spacer()
             Button {
-                if let asset = lastDeletedAsset, case .album(let album) = mode {
-                albumStore.undoDelete(asset.localIdentifier, restoringTo: album)
+                guard let asset = lastDeletedAsset else { return }
+                
+                if case .album(let album) = mode {
+                    dataService.undoDelete(asset.localIdentifier, restoringTo: album)
+                } else {
+                    dataService.undoDelete(asset.localIdentifier, restoringTo: nil)
+                }
+                
                 let insertIndex = min(lastDeletedIndex ?? assets.count, assets.count)
                 assets.insert(asset, at: insertIndex)
                 currentIndex = insertIndex
-            }
-            withAnimation { showUndoToast = false }
+                
+                withAnimation { showUndoToast = false }
             } label: {
                 Label("Undo Delete", systemImage: "arrow.uturn.backward")
                     .font(.subheadline.weight(.semibold))
@@ -277,56 +382,23 @@ struct PhotoDetailView: View {
         private func toggleFavorite(_ asset: PHAsset) {
             let newValue = !isFavorite(asset)
             favoriteOverrides[asset.localIdentifier] = newValue
-            Task { await PhotoLibraryManager.shared.toggleFavorite(for: asset) }
+            Task { await PhotoLibraryService.shared.toggleFavorite(for: asset) }
         }
-    // MARK: - Actions (Recently Deleted mode)
-
-    private var recentlyDeletedActionBar: some View {
-        VStack {
-            Spacer()
-            HStack(spacing: 14) {
-                Button {
-                    performRecover()
-                } label: {
-                    Label("Recover", systemImage: "arrow.uturn.backward")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .tint(.blue)
-
-                Button(role: .destructive) {
-                    performDeleteForever()
-                } label: {
-                    Label("Delete Forever", systemImage: "trash.fill")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .tint(.red)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal)
-            .padding(.bottom, 24)
-        }
-    }
-
+    
     private func performRecover() {
         guard let asset = currentAsset else { return }
-        albumStore.restoreFromDeleted(asset.localIdentifier)
+        dataService.restoreFromDeleted(asset.localIdentifier)
         advanceOrDismiss()
     }
 
     private func performDeleteForever() {
         guard let asset = currentAsset else { return }
         Task {
-            await PhotoLibraryManager.shared.permanentlyDelete(identifiers: [asset.localIdentifier])
-            albumStore.removeFromDeletedList(asset.localIdentifier)
+            await PhotoLibraryService.shared.permanentlyDelete(identifiers: [asset.localIdentifier])
+            dataService.removeFromDeletedList(asset.localIdentifier)
             advanceOrDismiss()
         }
     }
-
-    // MARK: - Helpers
 
     private func fileName(for asset: PHAsset) -> String {
         PHAssetResource.assetResources(for: asset).first?.originalFilename ?? "Item"
@@ -340,46 +412,48 @@ struct PhotoDetailView: View {
     }
 }
 
-/// One page inside the swipe pager — used by every mode. Loads its own
-/// image/video, supports pinch-to-zoom (double-tap resets), and — only
-/// when `enableHoldToDelete` is true — a "hold, then drag down onto the
-/// Delete button" gesture:
-///   1. Long-press the photo → a Delete button fades in at the bottom,
-///      and the photo lifts slightly (scales down a touch) to show it's
-///      "picked up".
-///   2. Keep holding and drag down → the photo follows your finger. Once
-///      you drag far enough that you'd be dropping it onto the button,
-///      the button lights up red.
-///   3. Let go while the button is lit → it's deleted. Let go anywhere
-///      else → everything springs back, nothing happens.
 private struct MediaPageView: View {
     let asset: PHAsset
+    var isActive: Bool = true
     var enableHoldToDelete: Bool = false
     var onConfirmDelete: (() -> Void)? = nil
 
     @State private var image: UIImage?
     @State private var player: AVPlayer?
     @State private var zoomScale: CGFloat = 1
+    @State private var baselineZoomScale: CGFloat = 1
+    @State private var zoomAnchor: UnitPoint = .center
+    @State private var panOffset: CGSize = .zero
+    @State private var baselinePanOffset: CGSize = .zero
 
     @State private var isHolding = false
     @State private var holdDragOffset: CGSize = .zero
     @State private var isHoveringDeleteZone = false
-
-    /// How far down (in points) the photo needs to be dragged, once
-    /// picked up, before it counts as "dropped on the Delete button".
     private let deleteZoneThreshold: CGFloat = 130
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                mediaContent(in: geo)
-                    .offset(holdDragOffset)
-                    .scaleEffect(isHolding ? 0.92 : zoomScale)
-                    .simultaneousGesture(magnificationGesture)
-                    .onTapGesture(count: 2) {
-                        withAnimation(.spring()) { zoomScale = 1 }
-                    }
-                    .gesture(enableHoldToDelete ? holdToDeleteGesture : nil)
+                if asset.mediaType == .video {
+                    mediaContent(in: geo)
+                } else {
+                    mediaContent(in: geo)
+                        .offset(x: holdDragOffset.width + panOffset.width, 
+                               y: holdDragOffset.height + panOffset.height)
+                        .scaleEffect(isHolding ? 0.92 : zoomScale, anchor: isHolding ? .center : zoomAnchor)
+                        .simultaneousGesture(magnificationGesture)
+                        .gesture(zoomScale > 1 ? panGesture : nil, including: zoomScale > 1 ? .all : .none)
+                        .onTapGesture(count: 2) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                zoomScale = 1
+                                baselineZoomScale = 1
+                                zoomAnchor = .center
+                                panOffset = .zero
+                                baselinePanOffset = .zero
+                            }
+                        }
+                        .gesture(enableHoldToDelete ? holdToDeleteGesture : nil)
+                }
 
                 if enableHoldToDelete {
                     VStack {
@@ -393,6 +467,10 @@ private struct MediaPageView: View {
         }
         .task(id: asset.localIdentifier) {
             zoomScale = 1
+            baselineZoomScale = 1
+            zoomAnchor = .center
+            panOffset = .zero
+            baselinePanOffset = .zero
             if asset.mediaType == .video {
                 let options = PHVideoRequestOptions()
                 options.isNetworkAccessAllowed = true
@@ -402,10 +480,19 @@ private struct MediaPageView: View {
                     }
                 }
                 if let item {
-                    player = AVPlayer(playerItem: item)
+                    let newPlayer = AVPlayer(playerItem: item)
+                    player = newPlayer
+                    if isActive { newPlayer.play() }
                 }
             } else {
-                image = await PhotoLibraryManager.shared.loadFullImage(for: asset)
+                image = await PhotoLibraryService.shared.loadFullImage(for: asset)
+            }
+        }
+        .onChange(of: isActive) { _, active in
+            if active {
+                player?.play()
+            } else {
+                player?.pause()
             }
         }
     }
@@ -415,7 +502,8 @@ private struct MediaPageView: View {
         if asset.mediaType == .video {
             if let player {
                 VideoPlayer(player: player)
-                    .onAppear { player.play() }
+                    .onAppear { if isActive { player.play() } }
+                    .onDisappear { player.pause() }
             } else {
                 ProgressView().tint(.white)
             }
@@ -447,8 +535,6 @@ private struct MediaPageView: View {
             .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isHoveringDeleteZone)
     }
 
-    /// Long-press to "pick up" the photo, then drag down onto the
-    /// Delete button to confirm.
     private var holdToDeleteGesture: some Gesture {
         LongPressGesture(minimumDuration: 0.4)
             .sequenced(before: DragGesture(minimumDistance: 0))
@@ -494,15 +580,41 @@ private struct MediaPageView: View {
     }
 
     private var magnificationGesture: some Gesture {
-        MagnificationGesture()
+        MagnifyGesture()
             .onChanged { value in
                 guard !isHolding, asset.mediaType != .video else { return }
-                zoomScale = min(max(value, 1), 4)
+                zoomAnchor = value.startAnchor
+                zoomScale = min(max(baselineZoomScale * value.magnification, 1), 4)
             }
             .onEnded { _ in
+                baselineZoomScale = zoomScale
                 if zoomScale < 1.05 {
-                    withAnimation(.spring()) { zoomScale = 1 }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        zoomScale = 1
+                        baselineZoomScale = 1
+                        zoomAnchor = .center
+                        panOffset = .zero
+                        baselinePanOffset = .zero
+                    }
                 }
             }
     }
+    
+    private var panGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let newOffsetWidth = baselinePanOffset.width + value.translation.width
+                let newOffsetHeight = baselinePanOffset.height + value.translation.height
+                
+                let maxOffset = 200 * zoomScale
+                let clampedWidth = min(max(newOffsetWidth, -maxOffset), maxOffset)
+                let clampedHeight = min(max(newOffsetHeight, -maxOffset), maxOffset)
+                
+                panOffset = CGSize(width: clampedWidth, height: clampedHeight)
+            }
+            .onEnded { _ in
+                baselinePanOffset = panOffset
+            }
+    }
 }
+
