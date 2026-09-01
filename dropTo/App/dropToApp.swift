@@ -38,13 +38,13 @@ struct dropToApp: App {
     }
     
     //============================================================================
-    // PHASE 4: SCENE
+    // SCENE
     //============================================================================
     // INJECT DATASERVICE KE SELURUH APP, APPLY COLOR SCHEME
     
     var body: some Scene {
         WindowGroup {
-            HomeView()
+            RootTabView()
                 .environmentObject(dataService)
                 .modelContainer(dataService.modelContainer)
                 .preferredColorScheme(colorScheme)

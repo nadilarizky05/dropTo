@@ -130,16 +130,19 @@ final class PhotoLibraryService: ObservableObject {
     // FUNCTION 6: HAPUS FOTO/VIDEO PERMANEN DARI DEVICE
     //============================================================================
     // TERIMA LIST IDENTIFIER → HAPUS PERMANEN (BEDA DARI SOFT DELETE KE TRASH)
+    // RETURN TRUE KALAU BERHASIL, FALSE KALAU GAGAL (MISAL USER TOLAK PERMISSION)
     
-    func permanentlyDelete(identifiers: [String]) async {
-        guard !identifiers.isEmpty else { return }
+    func permanentlyDelete(identifiers: [String]) async -> Bool {
+        guard !identifiers.isEmpty else { return false }
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
         do {
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.deleteAssets(assets)
             }
+            return true
         } catch {
             print("Could not delete photos: \(error)")
+            return false
         }
     }
     

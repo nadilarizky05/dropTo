@@ -23,11 +23,15 @@ struct PhotoDetailView: View {
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
     @State private var isLoadingShare = false
+    
+    // INITIAL IDENTIFIERS (BUAT REFRESH SAAT DATA BERUBAH)
+    private let initialIdentifiers: [String]
 
     init(assets: [PHAsset], startingAt startAsset: PHAsset, mode: PhotoDetailMode) {
         _assets = State(initialValue: assets)
         self.mode = mode
         _currentIndex = State(initialValue: assets.firstIndex(where: { $0.localIdentifier == startAsset.localIdentifier }) ?? 0)
+        self.initialIdentifiers = assets.map { $0.localIdentifier }
     }
 
     private var currentAsset: PHAsset? {
@@ -131,6 +135,67 @@ struct PhotoDetailView: View {
         } content: {
             if !shareItems.isEmpty {
                 ActivityViewController(items: shareItems)
+            }
+        }
+        .onChange(of: assets.isEmpty) { _, isEmpty in
+            // AUTO DISMISS KALAU SEMUA FOTO UDAH DIHAPUS/DIMOVE
+            if isEmpty {
+                dismiss()
+            }
+        }
+        .onReceive(dataService.$lastUpdate) { _ in
+            // REFRESH ASSETS SAAT ADA PERUBAHAN DATA
+            refreshAssets()
+        }
+    }
+    
+    //============================================================================
+    // FUNCTION: REFRESH ASSETS
+    //============================================================================
+    // RELOAD ASSETS DARI ALBUM/SOURCE SAAT ADA PERUBAHAN (DELETE/MOVE)
+    
+    private func refreshAssets() {
+        // SAVE CURRENT ASSET IDENTIFIER SEBELUM REFRESH
+        let currentIdentifier = currentAsset?.localIdentifier
+        
+        let updatedAssets: [PHAsset]
+        
+        switch mode {
+        case .album(let album):
+            // RELOAD DARI ALBUM
+            let currentAlbum = dataService.fetchAlbums().first(where: { $0.id == album.id })
+            updatedAssets = PhotoLibraryService.shared.fetchAssets(withIdentifiers: currentAlbum?.assetIdentifiers ?? [])
+            
+        case .browseOnly:
+            // RELOAD DARI UNORGANIZED (FILTER YANG BELUM DI ALBUM & TRASH)
+            let albums = dataService.fetchAlbums()
+            let deletedItems = dataService.fetchDeletedItems()
+            let organizedIdentifiers = Set(albums.flatMap(\.assetIdentifiers))
+            let deletedIdentifiers = Set(deletedItems.map(\.assetIdentifier))
+            
+            updatedAssets = PhotoLibraryService.shared.fetchAssets(withIdentifiers: initialIdentifiers)
+                .filter { !organizedIdentifiers.contains($0.localIdentifier) && !deletedIdentifiers.contains($0.localIdentifier) }
+            
+        case .recentlyDeleted:
+            // RELOAD DARI RECENTLY DELETED
+            let deletedItems = dataService.fetchDeletedItems()
+            updatedAssets = PhotoLibraryService.shared.fetchAssets(withIdentifiers: deletedItems.map { $0.assetIdentifier })
+        }
+        
+        // UPDATE ASSETS ARRAY
+        assets = updatedAssets
+        
+        // SMART INDEX ADJUSTMENT:
+        // 1. KALAU FOTO YANG SEDANG DILIHAT MASIH ADA → TETAP DI FOTO ITU
+        // 2. KALAU FOTO UDAH DIHAPUS → PINDAH KE FOTO DENGAN INDEX YANG SAMA (ATAU SEBELUMNYA KALAU INDEX OUT OF BOUNDS)
+        if let currentIdentifier = currentIdentifier,
+           let newIndex = assets.firstIndex(where: { $0.localIdentifier == currentIdentifier }) {
+            // FOTO MASIH ADA, UPDATE INDEX KE POSISI BARUNYA
+            currentIndex = newIndex
+        } else {
+            // FOTO UDAH DIHAPUS, ADJUST INDEX KALAU PERLU
+            if !assets.isEmpty && currentIndex >= assets.count {
+                currentIndex = assets.count - 1
             }
         }
     }
@@ -289,11 +354,14 @@ struct PhotoDetailView: View {
             if case .album(let album) = mode { return album.id }
             return nil
         }()
-        dataService.softDelete(asset.localIdentifier, sourceAlbumID: sourceAlbumID)
-
+        
+        // SAVE INFO BUAT UNDO
         lastDeletedAsset = asset
         lastDeletedIndex = currentIndex
-        assets.remove(at: currentIndex)
+        
+        // SOFT DELETE KE DATA SERVICE
+        // refreshAssets() AKAN OTOMATIS DIPANGGIL LEWAT onReceive(dataService.$lastUpdate)
+        dataService.softDelete(asset.localIdentifier, sourceAlbumID: sourceAlbumID)
 
         withAnimation { showUndoToast = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
@@ -301,10 +369,14 @@ struct PhotoDetailView: View {
         }
     }
 
-        private func advanceOrDismiss() {
-            guard assets.indices.contains(currentIndex) else { return }
-            assets.remove(at: currentIndex)
-        }
+    private func advanceOrDismiss() {
+        // GA PERLU MANUAL REMOVE ASSET!
+        // refreshAssets() AKAN OTOMATIS DIPANGGIL LEWAT onReceive(dataService.$lastUpdate)
+        // DAN DIA AKAN HANDLE SEMUA LOGIC REFRESH + INDEX ADJUSTMENT
+        
+        // FUNGSI INI SEKARANG CUMA PLACEHOLDER
+        // BISA DIHAPUS TAPI BIAR BACKWARD COMPATIBLE TETAP DIBIKIN
+    }
 
     private var undoToast: some View {
         VStack {
@@ -394,9 +466,12 @@ struct PhotoDetailView: View {
     private func performDeleteForever() {
         guard let asset = currentAsset else { return }
         Task {
-            await PhotoLibraryService.shared.permanentlyDelete(identifiers: [asset.localIdentifier])
-            dataService.removeFromDeletedList(asset.localIdentifier)
-            advanceOrDismiss()
+            let success = await PhotoLibraryService.shared.permanentlyDelete(identifiers: [asset.localIdentifier])
+            // HANYA REMOVE DARI UI KALAU DELETE BENER-BENER BERHASIL
+            if success {
+                dataService.removeFromDeletedList(asset.localIdentifier)
+                advanceOrDismiss()
+            }
         }
     }
 

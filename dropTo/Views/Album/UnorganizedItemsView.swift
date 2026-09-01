@@ -97,37 +97,20 @@ struct UnorganizedItemsView: View {
                 }
             }
         }
-        .navigationTitle(isSelecting ? "\(selectedIdentifiers.count) Selected" : "Unorganized Items")
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionActionBar
+            }
+        }
+        .navigationTitle("Unorganized Items")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isSelecting ? "Cancel" : "Select") {
-                    withAnimation {
-                        isSelecting.toggle()
-                        selectedIdentifiers.removeAll()
-                    }
+                    isSelecting.toggle()
+                    selectedIdentifiers.removeAll()
                 }
                 .disabled(assets.isEmpty && !isSelecting)
-            }
-            
-            if isSelecting {
-                ToolbarItemGroup(placement: .bottomBar) {
-                    Button {
-                        showMoveSheet = true
-                    } label: {
-                        Label("Move", systemImage: "folder")
-                    }
-                    .disabled(selectedIdentifiers.isEmpty)
-
-                    Spacer()
-
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                    .disabled(selectedIdentifiers.isEmpty)
-                }
             }
         }
         .sheet(isPresented: $showMoveSheet) {
@@ -140,11 +123,15 @@ struct UnorganizedItemsView: View {
         .navigationDestination(item: $selectedAsset) { asset in
             PhotoDetailView(assets: assets, startingAt: asset, mode: .browseOnly)
         }
-        .alert("Delete \(selectedIdentifiers.count) item\(selectedIdentifiers.count == 1 ? "" : "s")?", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
+        .confirmationDialog(
+            "Delete \(selectedIdentifiers.count) item\(selectedIdentifiers.count > 1 ? "s" : "")?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
             Button("Delete", role: .destructive) {
                 deleteSelectedItems()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("These items will be moved to Recently Deleted.")
         }
@@ -154,6 +141,60 @@ struct UnorganizedItemsView: View {
         .onReceive(dataService.$lastUpdate) { _ in
             loadAssets()
         }
+    }
+    
+    //============================================================================
+    // SUBVIEW: SELECTION ACTION BAR
+    //============================================================================
+    // BAR DI BAWAH DENGAN DELETE & MOVE BUTTONS (GLASSY STYLE)
+    
+    private var selectionActionBar: some View {
+        HStack(spacing: 16) {
+            Text("\(selectedIdentifiers.count) selected")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            // DELETE BUTTON (ICON HITAM, GLASSY BACKGROUND)
+            Button {
+                showDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 56, height: 56)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(.white.opacity(0.3), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+            }
+            .disabled(selectedIdentifiers.isEmpty)
+
+            // MOVE BUTTON (ICON HITAM, GLASSY BACKGROUND)
+            Button {
+                showMoveSheet = true
+            } label: {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 56, height: 56)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(.white.opacity(0.3), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+            }
+            .disabled(selectedIdentifiers.isEmpty)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 
     //============================================================================
@@ -181,9 +222,15 @@ struct UnorganizedItemsView: View {
         for identifier in selectedIdentifiers {
             dataService.softDelete(identifier, sourceAlbumID: nil)
         }
+        
+        // HAPTIC FEEDBACK
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        
+        // CLEANUP UI STATE
         selectedIdentifiers.removeAll()
         isSelecting = false
+        
+        // RELOAD DATA (PENTING! BIAR GRID UPDATE)
         loadAssets()
     }
 }

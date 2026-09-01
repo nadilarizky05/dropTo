@@ -118,8 +118,11 @@ struct RecentlyDeletedView: View {
                 Button(role: .destructive) {
                     Task {
                         let ids = Array(selectedIdentifiers)
-                        await PhotoLibraryService.shared.permanentlyDelete(identifiers: ids)
-                        for id in ids { dataService.removeFromDeletedList(id) }
+                        let success = await PhotoLibraryService.shared.permanentlyDelete(identifiers: ids)
+                        // HANYA REMOVE DARI LIST KALAU DELETE BENER-BENER BERHASIL
+                        if success {
+                            for id in ids { dataService.removeFromDeletedList(id) }
+                        }
                         selectedIdentifiers.removeAll()
                         isSelecting = false
                     }

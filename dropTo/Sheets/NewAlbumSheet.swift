@@ -3,7 +3,7 @@ import SwiftUI
 //============================================================================
 // SHEET: BUAT ALBUM BARU
 //============================================================================
-// SHEET POPUP FORM INPUT NAMA ALBUM, TAP "CREATE" → BIKIN ALBUM DI DATABASE
+// SHEET COMPACT DARI BAWAH BUAT INPUT NAMA ALBUM
 
 struct NewAlbumSheet: View {
     
@@ -28,6 +28,10 @@ struct NewAlbumSheet: View {
                 Section {
                     TextField("Album Title", text: $albumTitle)
                         .focused($isFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            createAlbum()
+                        }
                 }
             }
             .navigationTitle("New Album")
@@ -40,21 +44,27 @@ struct NewAlbumSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
-                        // KALAU USER GAK ISI NAMA, DEFAULT "UNTITLED ALBUM"
-                        let newAlbum = dataService.createAlbum(title: albumTitle.isEmpty ? "Untitled Album" : albumTitle)
-                        onCreate?(newAlbum)
-                        dismiss()
+                        createAlbum()
                     }
                 }
             }
             .onAppear {
-                // AUTO FOCUS KE TEXTFIELD BIAR USER LANGSUNG BISA NGETIK
                 isFocused = true
             }
         }
+        .presentationDetents([.height(200)])  // FIXED HEIGHT 200PT (COMPACT!)
+        .presentationDragIndicator(.visible)
+    }
+    
+    //============================================================================
+    // FUNCTION: CREATE ALBUM
+    //============================================================================
+    // HELPER FUNCTION BUAT BIKIN ALBUM (DIPANGGIL SAAT TAP CREATE ATAU SUBMIT)
+    
+    private func createAlbum() {
+        let newAlbum = dataService.createAlbum(title: albumTitle.isEmpty ? "Untitled Album" : albumTitle)
+        onCreate?(newAlbum)
+        dismiss()
     }
 }
 
-#Preview {
-    NewAlbumSheet(dataService: DataService())
-}

@@ -5,12 +5,14 @@
 
 import SwiftUI
 import Photos
+import SwiftData
 
 struct AlbumDetailView: View {
     
     //============================================================================
     // PROPERTIES
     //============================================================================
+    
     let album: Album                                        // ALBUM YANG DITAMPILKAN
     @EnvironmentObject private var dataService: DataService // AKSES DATABASE
     
@@ -19,12 +21,14 @@ struct AlbumDetailView: View {
     @State private var isSelecting = false                  // MODE SELECT ON/OFF
     @State private var selectedIdentifiers: Set<String> = [] // LIST FOTO TERCENTANG
     @State private var showMoveSheet = false                 // FLAG SHEET MOVE
+    @State private var showDeleteConfirm = false             // FLAG KONFIRMASI DELETE
     @State private var groupedAssets: [(day: Date, assets: [PHAsset])] = [] // FOTO PER HARI
     
     //============================================================================
     // COMPUTED PROPERTY: CURRENT ALBUM
     //============================================================================
     // FETCH ALBUM TERBARU DARI DATABASE BIAR SELALU SYNC
+    
     private var currentAlbum: Album {
         dataService.fetchAlbums().first(where: { $0.id == album.id }) ?? album
     }
@@ -33,6 +37,7 @@ struct AlbumDetailView: View {
     // FUNCTION: LOAD ASSETS DAN GROUP PER HARI
     //============================================================================
     // AMBIL SEMUA FOTO/VIDEO DI ALBUM → KELOMPOKKAN PER TANGGAL (HARI)
+    
     private func loadAssets() {
         let assets = PhotoLibraryService.shared.fetchAssets(withIdentifiers: currentAlbum.assetIdentifiers)
         let groups = Dictionary(grouping: assets) { asset in
@@ -42,11 +47,12 @@ struct AlbumDetailView: View {
             .map { (day: $0.key, assets: $0.value) }
             .sorted { $0.day > $1.day }
     }
-
+    
     //============================================================================
     // GRID LAYOUT
     //============================================================================
-    // 4 KOLOM FOTO (GRID KECIL-KECIL)
+    // 4 KOLOM FOTO
+    
     private let columns = [
         GridItem(.flexible(), spacing: 4),
         GridItem(.flexible(), spacing: 4),
@@ -120,6 +126,18 @@ struct AlbumDetailView: View {
             }
             .ignoresSafeArea()
         }
+        .confirmationDialog(
+            "Delete \(selectedIdentifiers.count) item\(selectedIdentifiers.count > 1 ? "s" : "")?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                deleteSelected()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("These items will be moved to Recently Deleted.")
+        }
         .sheet(isPresented: $showMoveSheet) {
             MoveToAlbumSheet(sourceAlbum: currentAlbum, identifiersToMove: Array(selectedIdentifiers), dataService: dataService) {
                 selectedIdentifiers.removeAll()
@@ -145,15 +163,37 @@ struct AlbumDetailView: View {
 
             Spacer()
 
+            // DELETE BUTTON (ICON HITAM, GLASSY BACKGROUND)
+            Button {
+                showDeleteConfirm = true
+            } label: {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 56, height: 56)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(.white.opacity(0.3), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+            }
+            .disabled(selectedIdentifiers.isEmpty)
+
+            // MOVE BUTTON (ICON HITAM, GLASSY BACKGROUND)
             Button {
                 showMoveSheet = true
             } label: {
-                Label("Move", systemImage: "folder")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 10)
-                    .background(Color.blue, in: Capsule())
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 56, height: 56)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(.white.opacity(0.3), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
             }
             .disabled(selectedIdentifiers.isEmpty)
         }
@@ -178,6 +218,26 @@ struct AlbumDetailView: View {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }
         }
+    }
+    
+    //============================================================================
+    // FUNCTION: DELETE SELECTED ASSETS
+    //============================================================================
+    // SOFT DELETE - PINDAH KE TRASH (RECENTLY DELETED), BUKAN HAPUS PERMANEN
+    
+    private func deleteSelected() {
+        let identifiersToDelete = Array(selectedIdentifiers)
+        
+        // SOFT DELETE → PINDAH KE TRASH
+        for identifier in identifiersToDelete {
+            dataService.softDelete(identifier, sourceAlbumID: currentAlbum.id)
+        }
+        
+        // FEEDBACK & CLEANUP
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        selectedIdentifiers.removeAll()
+        isSelecting = false
+        loadAssets()
     }
     
     //============================================================================
