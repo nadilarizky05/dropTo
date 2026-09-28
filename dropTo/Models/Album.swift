@@ -13,16 +13,18 @@ final class Album {
     var title: String
     var createdAt: Date
     var assetIdentifiers: [String]
+    var isPinned: Bool
     
     //============================================================================
     // INITIALIZER
     //============================================================================
     // BUAT ALBUM BARU DENGAN PARAMETER DEFAULT
     
-    init(id: UUID = UUID(), title: String, createdAt: Date = Date(), assetIdentifiers: [String] = []) {
+    init(id: UUID = UUID(), title: String, createdAt: Date = Date(), assetIdentifiers: [String] = [], isPinned: Bool = false) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.assetIdentifiers = assetIdentifiers
+        self.isPinned = isPinned
     }
 }

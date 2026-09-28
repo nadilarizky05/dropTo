@@ -1,29 +1,38 @@
 import SwiftUI
 
-//============================================================================
-// VIEW: ROOT TAB VIEW
-//============================================================================
-// TAB BAR UTAMA APP - 2 TAB: ALL ALBUMS DAN ALL ITEMS
-
 struct RootTabView: View {
     
-    //============================================================================
-    // BODY
-    //============================================================================
+    @EnvironmentObject private var dataService: DataService
+    @Environment(DeepLinkCoordinator.self) private var deepLinkCoordinator
     
     var body: some View {
-        TabView {
-            // TAB 1: ALL ALBUMS (GRID ALBUM)
+        @Bindable var coordinator = deepLinkCoordinator
+        
+        TabView(selection: $coordinator.selectedTab) {
             HomeView()
                 .tabItem {
                     Label("All Albums", systemImage: "square.grid.2x2.fill")
                 }
+                .tag(RootTab.albums)
             
-            // TAB 2: ALL ITEMS (SEMUA FOTO/VIDEO)
             AllItemsView()
                 .tabItem {
-                    Label("All Items", systemImage: "photo.on.rectangle.angled")
+                    Label("Similiar Photos", systemImage: "photo.on.rectangle.angled")
                 }
+                .tag(RootTab.similarPhotos)
+        }
+        // KAMERA DARI WIDGET: MUNCUL LANGSUNG.
+        // SETELAH DITUTUP (onDismiss) → BARU MASUK KE ALBUM-NYA
+        .fullScreenCover(
+            item: $coordinator.cameraTarget,
+            onDismiss: { deepLinkCoordinator.cameraDidClose() }
+        ) { target in
+            CameraPicker { media in
+                Task {
+                    await dataService.saveCapturedMedia(media, toAlbumWithID: target.albumID)
+                }
+            }
+            .ignoresSafeArea()
         }
     }
 }
@@ -31,4 +40,5 @@ struct RootTabView: View {
 #Preview {
     RootTabView()
         .environmentObject(DataService())
+        .environment(DeepLinkCoordinator())
 }

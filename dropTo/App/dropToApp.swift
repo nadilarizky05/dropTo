@@ -1,7 +1,6 @@
 import SwiftUI
 import SwiftData
 
-
 @main
 struct dropToApp: App {
     
@@ -11,6 +10,10 @@ struct dropToApp: App {
     
     let dataService = DataService()
     @AppStorage("dropTo.colorScheme") private var colorSchemePreference: String = "auto"
+    
+    // DEEP LINK COORDINATOR (UNTUK WIDGET)
+    @State private var deepLinkCoordinator = DeepLinkCoordinator()
+    @Environment(\.scenePhase) private var scenePhase
     
     //============================================================================
     // PHASE 2: INITIALIZER
@@ -40,7 +43,7 @@ struct dropToApp: App {
     //============================================================================
     // SCENE
     //============================================================================
-    // INJECT DATASERVICE KE SELURUH APP, APPLY COLOR SCHEME
+    // INJECT DATASERVICE KE SELURUH APP, APPLY COLOR SCHEME, HANDLE DEEP LINKS
     
     var body: some Scene {
         WindowGroup {
@@ -48,6 +51,18 @@ struct dropToApp: App {
                 .environmentObject(dataService)
                 .modelContainer(dataService.modelContainer)
                 .preferredColorScheme(colorScheme)
+                .environment(deepLinkCoordinator)
+                .onOpenURL { url in
+                    print("🔗 Deep link received: \(url)")
+                    deepLinkCoordinator.handle(url: url)
+                }
+        }
+        // TIAP APP AKTIF LAGI: SYNC ULANG WIDGET
+        // (MISAL USER BARU KASIH IZIN PHOTOS, ATAU HAPUS FOTO COVER DI APP PHOTOS)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                dataService.syncWidget()
+            }
         }
     }
 }

@@ -63,7 +63,8 @@ final class MigrationService {
                 id: oldAlbum.id,
                 title: oldAlbum.title,
                 createdAt: oldAlbum.createdAt,
-                assetIdentifiers: oldAlbum.assetIdentifiers
+                assetIdentifiers: oldAlbum.assetIdentifiers,
+                isPinned: false
             )
             dataService.modelContext.insert(album)
         }

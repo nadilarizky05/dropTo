@@ -10,12 +10,16 @@ import UniformTypeIdentifiers
 struct HomeView: View {
     @EnvironmentObject private var dataService: DataService
     @StateObject private var libraryManager = PhotoLibraryService.shared
+    
+    // DEEP LINK COORDINATOR (DARI WIDGET)
+    @Environment(DeepLinkCoordinator.self) private var deepLinkCoordinator
 
     @State private var albums: [Album] = []
     @State private var deletedItems: [DeletedItem] = []
     @State private var showNewAlbumSheet = false
     @State private var selectedAlbum: Album?
     @State private var showUnorganizedItems = false
+    @State private var showFavorites = false
     @State private var showRecentlyDeleted = false
 
     @State private var isSelecting = false
@@ -51,6 +55,19 @@ struct HomeView: View {
 
     private var unorganizedCoverAsset: PHAsset? { unorganizedAssets.first }
     private var unorganizedCount: Int { unorganizedAssets.count }
+    
+    private var favoriteAssets: [PHAsset] {
+        guard libraryManager.isAuthorized else { return [] }
+        let options = PHFetchOptions()
+        options.predicate = NSPredicate(format: "isFavorite == YES")
+        let result = PHAsset.fetchAssets(with: options)
+        var assets: [PHAsset] = []
+        result.enumerateObjects { asset, _, _ in assets.append(asset) }
+        return assets
+    }
+    
+    private var favoriteCoverAsset: PHAsset? { favoriteAssets.first }
+    private var favoriteCount: Int { favoriteAssets.count }
 
     var body: some View {
         NavigationStack {
@@ -79,7 +96,32 @@ struct HomeView: View {
                     tint: .blue,
                     coverAsset: unorganizedCoverAsset
                 )
-                .onTapGesture { if !isSelecting { showUnorganizedItems = true } }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !isSelecting {
+                        print("🔵 Opening Unorganized Items")
+                        showFavorites = false // Reset favorites state
+                        showRecentlyDeleted = false // Reset deleted state
+                        showUnorganizedItems = true
+                    }
+                }
+                
+                SystemTileView(
+                    title: "Favorites",
+                    subtitle: "\(favoriteCount) items",
+                    systemImage: "heart.fill",
+                    tint: .red,
+                    coverAsset: favoriteCoverAsset
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !isSelecting {
+                        print("❤️ Opening Favorites")
+                        showUnorganizedItems = false // Reset unorganized state
+                        showRecentlyDeleted = false // Reset deleted state
+                        showFavorites = true
+                    }
+                }
 
                 ForEach(albums) { album in
                     albumCell(for: album)
@@ -92,7 +134,15 @@ struct HomeView: View {
                     tint: .gray,
                     coverAsset: mostRecentlyDeletedAsset
                 )
-                .onTapGesture { if !isSelecting { showRecentlyDeleted = true } }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !isSelecting {
+                        print("🗑️ Opening Recently Deleted")
+                        showUnorganizedItems = false // Reset unorganized state
+                        showFavorites = false // Reset favorites state
+                        showRecentlyDeleted = true
+                    }
+                }
             }
             .padding(.horizontal)
             .padding(.top, 8)
@@ -161,9 +211,13 @@ struct HomeView: View {
             }
             .navigationDestination(item: $selectedAlbum) { album in
                 AlbumDetailView(album: album)
+                    .id(album.id) // ALBUM BEDA = VIEW BARU (STATE NGGAK KEBAWA DARI ALBUM LAIN)
             }
             .navigationDestination(isPresented: $showUnorganizedItems) {
                 UnorganizedItemsView()
+            }
+            .navigationDestination(isPresented: $showFavorites) {
+                FavoritesView()
             }
             .navigationDestination(isPresented: $showRecentlyDeleted) {
                 RecentlyDeletedView()
@@ -173,10 +227,45 @@ struct HomeView: View {
             }
             .onAppear {
                 loadData()
+                handleDeepLink()
             }
             .onReceive(dataService.$lastUpdate) { _ in
                 loadData()
             }
+            .onChange(of: deepLinkCoordinator.albumToOpen) { _, _ in
+                handleDeepLink()
+            }
+    }
+    
+    //============================================================================
+    // FUNCTION: HANDLE DEEP LINK
+    //============================================================================
+    // HANDLE NAVIGASI DARI WIDGET
+    
+    private func handleDeepLink() {
+        guard let albumID = deepLinkCoordinator.albumToOpen else { return }
+        loadData() // PASTIKAN LIST ALBUM TERBARU
+        
+        // CARI ALBUM BERDASARKAN ID
+        if let album = albums.first(where: { $0.id == albumID }) {
+            print("📱 Deep link: Opening album \(album.title)")
+            // TUTUP HALAMAN LAIN, LALU PUSH ALBUM TANPA ANIMASI
+            // (KAMERA UDAH NUTUP LAYAR, JADI USER NGGAK NGELIHAT PROSES INI)
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                showUnorganizedItems = false
+                showFavorites = false
+                showRecentlyDeleted = false
+                isSelecting = false
+                selectedAlbum = album
+            }
+        } else {
+            print("⚠️ Deep link: Album not found with ID \(albumID)")
+        }
+        
+        // SUDAH DI-HANDLE → CLEAR (KAMERA DI-HANDLE TERPISAH OLEH ROOTTABVIEW)
+        deepLinkCoordinator.albumToOpen = nil
     }
     
     private func loadData() {
@@ -266,6 +355,18 @@ struct HomeView: View {
             }
         }
         .contextMenu {
+            Button {
+                dataService.togglePinAlbum(album)
+                loadData()
+            } label: {
+                Label(
+                    album.isPinned ? "Unpin" : "Pin",
+                    systemImage: album.isPinned ? "pin.slash" : "pin"
+                )
+            }
+            
+            Divider()
+            
             Button {
                 albumToRename = album
                 renameText = album.title
@@ -363,26 +464,47 @@ private struct AlbumGridCell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Group {
-                if let coverAsset {
-                    AssetThumbnailView(asset: coverAsset, cornerRadius: 16)
-                } else {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(.systemGray5))
-                            .aspectRatio(1, contentMode: .fit)
-                        Image(systemName: "photo.on.rectangle.angled")
-                            .font(.system(size: 24))
-                            .foregroundStyle(.secondary)
+            ZStack(alignment: .topTrailing) {
+                Group {
+                    if let coverAsset {
+                        AssetThumbnailView(asset: coverAsset, cornerRadius: 16)
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(.systemGray5))
+                                .aspectRatio(1, contentMode: .fit)
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.4), lineWidth: 0.5))
+                .selectionOverlay(isSelecting: isSelecting, isSelected: isSelected)
+                
+                // PIN INDICATOR
+                if album.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.blue.gradient, in: Circle())
+                        .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
+                        .padding(8)
+                }
             }
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(.white.opacity(0.4), lineWidth: 0.5))
-            .selectionOverlay(isSelecting: isSelecting, isSelected: isSelected)
 
-            Text(album.title)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
+            HStack(spacing: 4) {
+                if album.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.blue)
+                }
+                Text(album.title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+            }
+            
             Text("\(album.assetIdentifiers.count) items")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -417,5 +539,6 @@ private struct AlbumDropDelegate: DropDelegate {
 #Preview {
     HomeView()
         .environmentObject(DataService())
+        .environment(DeepLinkCoordinator())
 }
 

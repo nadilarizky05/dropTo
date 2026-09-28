@@ -15,6 +15,7 @@ struct AlbumDetailView: View {
     
     let album: Album                                        // ALBUM YANG DITAMPILKAN
     @EnvironmentObject private var dataService: DataService // AKSES DATABASE
+
     
     @State private var showCamera = false                   // FLAG BUKA/TUTUP KAMERA
     @State private var selectedAsset: PHAsset?              // FOTO YANG DIPILIH (BUAT NAVIGATION)
@@ -76,6 +77,11 @@ struct AlbumDetailView: View {
                             ForEach(group.assets, id: \.localIdentifier) { asset in
                                 AssetThumbnailView(asset: asset)
                                     .selectionOverlay(isSelecting: isSelecting, isSelected: selectedIdentifiers.contains(asset.localIdentifier))
+                                    .dragToSelect(
+                                        isSelecting: $isSelecting,
+                                        selectedIdentifiers: $selectedIdentifiers,
+                                        identifier: asset.localIdentifier
+                                    )
                                     .onTapGesture {
                                         if isSelecting {
                                             toggle(asset.localIdentifier)
@@ -99,8 +105,21 @@ struct AlbumDetailView: View {
         }
         .navigationTitle(currentAlbum.title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(isSelecting) // DISABLE SWIPE BACK SAAT SELECT MODE
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
+            if isSelecting {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isSelecting = false
+                        selectedIdentifiers.removeAll()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                }
+            }
+            
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isSelecting ? "Cancel" : "Select") {
                     isSelecting.toggle()
@@ -112,16 +131,7 @@ struct AlbumDetailView: View {
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { media in
                 Task {
-                    let identifier: String?
-                    switch media {
-                    case .photo(let image):
-                        identifier = await PhotoLibraryService.shared.saveNewPhoto(image)
-                    case .video(let url):
-                        identifier = await PhotoLibraryService.shared.saveNewVideo(fileURL: url)
-                    }
-                    if let identifier {
-                        dataService.addAsset(identifier, to: currentAlbum)
-                    }
+                    await dataService.saveCapturedMedia(media, toAlbumWithID: album.id)
                 }
             }
             .ignoresSafeArea()

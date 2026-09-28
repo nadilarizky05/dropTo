@@ -32,7 +32,8 @@ struct SelectionOverlay: ViewModifier {
                 (isSelecting && !isSelected) ? Color.black.opacity(0.35) : Color.clear
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                // BORDER KOTAK (Rectangle, bukan RoundedRectangle)
+                Rectangle()
                     .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
             )
             .overlay(alignment: .bottomTrailing) {

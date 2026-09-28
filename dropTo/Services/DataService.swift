@@ -9,27 +9,108 @@ final class DataService: ObservableObject {
     let modelContext: ModelContext
     @Published private(set) var lastUpdate = Date()
     
+    // APP GROUP IDENTIFIER (GANTI SESUAI YANG KAMU BUAT)
+    static let appGroupIdentifier = "group.com.dila.dropTo"
+    
     //============================================================================
     //PHASE 1: SETUP
     //============================================================================
-    //INISIALISASI SWIFT DATA
+    //INISIALISASI SWIFT DATA DENGAN SHARED CONTAINER
     
     init() {
         do {
-            modelContainer = try ModelContainer(for: Album.self, DeletedItem.self)
+            modelContainer = try Self.createSharedContainer()
             modelContext = ModelContext(modelContainer)
         } catch {
-            fatalError("Failed to initialize ModelContainer: \(error)")
+            // JIKA ERROR KARENA SCHEMA MISMATCH, HAPUS DATABASE LAMA DAN COBA LAGI
+            print("⚠️ ModelContainer initialization failed, attempting to reset database...")
+            Self.resetDatabase()
+            
+            do {
+                modelContainer = try Self.createSharedContainer()
+                modelContext = ModelContext(modelContainer)
+                print("✅ Database reset successful")
+            } catch {
+                fatalError("Failed to initialize ModelContainer after reset: \(error)")
+            }
         }
+        
+        // KIRIM ALBUM YANG DI-PIN KE WIDGET SAAT APP DIBUKA
+        syncWidget()
+    }
+    
+    //============================================================================
+    // HELPER: CREATE SHARED CONTAINER
+    //============================================================================
+    // BUAT CONTAINER YANG BISA DI-AKSES OLEH MAIN APP DAN WIDGET
+    
+    static func createSharedContainer() throws -> ModelContainer {
+        let schema = Schema([Album.self, DeletedItem.self])
+        
+        // COBA PAKAI APP GROUP CONTAINER DULU
+        if let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+        ) {
+            let storeURL = containerURL.appendingPathComponent("default.store")
+            let config = ModelConfiguration(url: storeURL)
+            
+            print("✅ Using shared container: \(storeURL.path)")
+            return try ModelContainer(for: schema, configurations: [config])
+        } else {
+            // FALLBACK: PAKAI DEFAULT CONTAINER (APP GROUP GA SETUP)
+            print("⚠️ App Group not found, using default container")
+            return try ModelContainer(for: schema)
+        }
+    }
+    
+    //============================================================================
+    // HELPER: RESET DATABASE
+    //============================================================================
+    // HAPUS FILE DATABASE SWIFTDATA UNTUK FRESH START
+    
+    private static func resetDatabase() {
+        // RESET APP GROUP CONTAINER
+        if let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+        ) {
+            let url = containerURL.appendingPathComponent("default.store")
+            let shmURL = url.appendingPathExtension("shm")
+            let walURL = url.appendingPathExtension("wal")
+            
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: shmURL)
+            try? FileManager.default.removeItem(at: walURL)
+            
+            print("🗑️ Shared database files removed")
+        }
+        
+        // RESET DEFAULT CONTAINER (LEGACY)
+        let url = URL.applicationSupportDirectory.appending(path: "default.store")
+        let shmURL = url.appendingPathExtension("shm")
+        let walURL = url.appendingPathExtension("wal")
+        
+        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: shmURL)
+        try? FileManager.default.removeItem(at: walURL)
+        
+        print("🗑️ Database files removed")
     }
     
     //============================================================================
     //PHASE 2: READ
     //============================================================================
-    //AMBIL SEMUA ALBUM DARI DB (URUTKAN BERDASARKAN YG TERBARU)
+    //AMBIL SEMUA ALBUM DARI DB (URUTKAN: PINNED PERTAMA, LALU BERDASARKAN YG TERBARU)
     func fetchAlbums() -> [Album] {
         let descriptor = FetchDescriptor<Album>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
-        return (try? modelContext.fetch(descriptor)) ?? []
+        let albums = (try? modelContext.fetch(descriptor)) ?? []
+        
+        // SORT: ALBUM YG DI-PIN MUNCUL PERTAMA, SISANYA URUTKAN BY CREATION DATE
+        return albums.sorted { lhs, rhs in
+            if lhs.isPinned != rhs.isPinned {
+                return lhs.isPinned // PINNED ALBUM DULUAN
+            }
+            return lhs.createdAt > rhs.createdAt // NEWER FIRST
+        }
     }
     
     //AMBIL SEMUA ITEM YG UDAH DIHAPUS
@@ -78,6 +159,42 @@ final class DataService: ObservableObject {
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         album.title = trimmed.isEmpty ? album.title : trimmed
         save()
+    }
+    
+    //TOGGLE PIN ALBUM (PIN/UNPIN)
+    // HANYA 1 ALBUM YANG BISA DI-PIN (UNTUK WIDGET)
+    func togglePinAlbum(_ album: Album) {
+        if album.isPinned {
+            // UNPIN
+            album.isPinned = false
+        } else {
+            // PIN: UNPIN SEMUA ALBUM LAIN DULU
+            let allAlbums = fetchAlbums()
+            for other in allAlbums where other.id != album.id {
+                other.isPinned = false
+            }
+            album.isPinned = true
+        }
+        save() // save() OTOMATIS SYNC KE WIDGET (COVER + JUDUL + RELOAD)
+    }
+    
+    //SIMPAN HASIL KAMERA KE PHOTOS LIBRARY + MASUKKAN KE ALBUM
+    // DIPAKAI OLEH TOMBOL KAMERA DI ALBUM DAN KAMERA DARI WIDGET
+    func saveCapturedMedia(_ media: CapturedMedia, toAlbumWithID albumID: UUID) async {
+        let identifier: String?
+        switch media {
+        case .photo(let image):
+            identifier = await PhotoLibraryService.shared.saveNewPhoto(image)
+        case .video(let url):
+            identifier = await PhotoLibraryService.shared.saveNewVideo(fileURL: url)
+        }
+        
+        guard let identifier else { return }
+        guard let album = fetchAlbums().first(where: { $0.id == albumID }) else {
+            print("⚠️ Album \(albumID) nggak ketemu, foto tetap tersimpan di Photos")
+            return
+        }
+        addAsset(identifier, to: album)
     }
     
     //============================================================================
@@ -166,5 +283,11 @@ final class DataService: ObservableObject {
         } catch {
             print("Error saving context: \(error)")
         }
+        syncWidget()
+    }
+
+    func syncWidget() {
+        let pinned = fetchAlbums().first(where: { $0.isPinned })
+        WidgetSyncService.sync(pinnedAlbum: pinned)
     }
 }

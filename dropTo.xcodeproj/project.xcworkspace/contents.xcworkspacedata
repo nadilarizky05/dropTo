@@ -4,4 +4,7 @@
    <FileRef
       location = "self:">
    </FileRef>
+   <FileRef
+      location = "group:WIDGET_FIX_APP_GROUP.md">
+   </FileRef>
 </Workspace>

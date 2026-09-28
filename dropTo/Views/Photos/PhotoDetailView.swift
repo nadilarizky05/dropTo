@@ -7,6 +7,20 @@ import SwiftUI
 import Photos
 import AVKit
 import UIKit
+import Vision
+import EventKit
+
+//============================================================================
+// STRUCT: DETECTED EVENT
+//============================================================================
+// REPRESENTASI EVENT YANG TERDETEKSI DARI FOTO
+
+struct DetectedEvent {
+    let title: String
+    let date: Date
+    let location: String?
+    let notes: String?
+}
 
 struct PhotoDetailView: View {
     let mode: PhotoDetailMode
@@ -23,6 +37,12 @@ struct PhotoDetailView: View {
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
     @State private var isLoadingShare = false
+    
+    // CALENDAR EVENT DETECTION
+    @State private var detectedEvent: DetectedEvent? = nil
+    @State private var isDetectingEvent = false
+    @State private var showCalendarSheet = false
+    @State private var isScanning = false
     
     // INITIAL IDENTIFIERS (BUAT REFRESH SAAT DATA BERUBAH)
     private let initialIdentifiers: [String]
@@ -49,8 +69,13 @@ struct PhotoDetailView: View {
         return false
     }
     
+    private var isFavoritesMode: Bool {
+        if case .favorites = mode { return true }
+        return false
+    }
+    
     private var showsActionBar: Bool {
-        isAlbumMode || isBrowseMode
+        isAlbumMode || isBrowseMode || isFavoritesMode
     }
 
     private var showsRecentlyDeletedActions: Bool {
@@ -130,6 +155,15 @@ struct PhotoDetailView: View {
                 )
             }
         }
+        .sheet(isPresented: $showCalendarSheet) {
+            if let asset = currentAsset {
+                AddToCalendarSheet(
+                    asset: asset,
+                    detectedEvent: detectedEvent,
+                    isPresented: $showCalendarSheet
+                )
+            }
+        }
         .sheet(isPresented: $showShareSheet) {
             shareItems = []
         } content: {
@@ -175,6 +209,11 @@ struct PhotoDetailView: View {
             
             updatedAssets = PhotoLibraryService.shared.fetchAssets(withIdentifiers: initialIdentifiers)
                 .filter { !organizedIdentifiers.contains($0.localIdentifier) && !deletedIdentifiers.contains($0.localIdentifier) }
+            
+        case .favorites:
+            // RELOAD DARI FAVORITES (FILTER YANG MASIH DI-FAVORITE)
+            updatedAssets = PhotoLibraryService.shared.fetchAssets(withIdentifiers: initialIdentifiers)
+                .filter { $0.isFavorite }
             
         case .recentlyDeleted:
             // RELOAD DARI RECENTLY DELETED
@@ -410,31 +449,61 @@ struct PhotoDetailView: View {
     }
 
     private var albumActionBar: some View {
-            VStack {
-                Spacer()
-                HStack {
-                    actionButton(
-                        systemImage: isFavorite(currentAsset!) ? "heart.fill" : "heart",
-                        label: "Favorite",
-                        tint: isFavorite(currentAsset!) ? .red : .white
-                    ) {
-                        toggleFavorite(currentAsset!)
-                    }
-                    Spacer()
-                    actionButton(systemImage: "folder", label: "Move", tint: .white) {
-                        showMoveSheet = true
-                    }
-                    Spacer()
-                    actionButton(systemImage: "trash", label: "Delete", tint: .red) {
-                        performDelete(currentAsset!)
-                    }
+        VStack {
+            Spacer()
+            HStack(spacing: 0) {
+                actionButton(
+                    systemImage: isFavorite(currentAsset!) ? "heart.fill" : "heart",
+                    label: "Favorite",
+                    tint: isFavorite(currentAsset!) ? .red : .white
+                ) {
+                    toggleFavorite(currentAsset!)
                 }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 14)
-                .background(.ultraThinMaterial)
+                
+                Spacer()
+                
+                // CALENDAR BUTTON WITH LOADING STATE
+                Button {
+                    if !isScanning {
+                        performScanForCalendar()
+                    }
+                } label: {
+                    VStack(spacing: 4) {
+                        if isScanning {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .tint(.white)
+                                .font(.system(size: 20))
+                        } else {
+                            Image(systemName: "calendar.badge.plus")
+                                .font(.system(size: 20))
+                        }
+                        Text("Calendar")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                }
+                .disabled(isScanning)
+                
+                Spacer()
+                
+                actionButton(systemImage: "folder", label: "Move", tint: .white) {
+                    showMoveSheet = true
+                }
+                
+                Spacer()
+                
+                actionButton(systemImage: "trash", label: "Delete", tint: .red) {
+                    performDelete(currentAsset!)
+                }
             }
-            .ignoresSafeArea(edges: .bottom)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+            .background(.ultraThinMaterial)
         }
+        .ignoresSafeArea(edges: .bottom)
+    }
 
         private func actionButton(systemImage: String, label: String, tint: Color, action: @escaping () -> Void) -> some View {
             Button(action: action) {
@@ -456,6 +525,21 @@ struct PhotoDetailView: View {
             favoriteOverrides[asset.localIdentifier] = newValue
             Task { await PhotoLibraryService.shared.toggleFavorite(for: asset) }
         }
+    
+    private func performScanForCalendar() {
+        guard let asset = currentAsset, asset.mediaType == .image else { return }
+        
+        isScanning = true
+        
+        Task {
+            await detectEventFromImage(asset)
+            
+            await MainActor.run {
+                isScanning = false
+                showCalendarSheet = true
+            }
+        }
+    }
     
     private func performRecover() {
         guard let asset = currentAsset else { return }
@@ -484,6 +568,629 @@ struct PhotoDetailView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE, dd MMM yyyy"
         return formatter.string(from: date)
+    }
+    
+    //============================================================================
+    // FUNCTION: DETECT EVENT FROM IMAGE
+    //============================================================================
+    
+    private func detectEventFromImage(_ asset: PHAsset) async {
+        guard !isDetectingEvent else { return }
+        isDetectingEvent = true
+        
+        print("🔎 Starting event detection for asset: \(asset.localIdentifier)")
+        
+        // RESET STATE
+        await MainActor.run {
+            detectedEvent = nil
+        }
+        
+        // GET IMAGE
+        guard let cgImage = await PhotoLibraryService.shared.loadFullImage(for: asset)?.cgImage else {
+            print("❌ Failed to load image")
+            isDetectingEvent = false
+            return
+        }
+        
+        // VISION TEXT RECOGNITION
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        
+        do {
+            try handler.perform([request])
+            
+            guard let observations = request.results, !observations.isEmpty else {
+                print("❌ No text detected in image")
+                isDetectingEvent = false
+                return
+            }
+            
+            print("✅ Found \(observations.count) text observations")
+            
+            // EXTRACT ALL TEXT
+            let recognizedText = observations
+                .compactMap { $0.topCandidates(1).first?.string }
+                .joined(separator: "\n")
+            
+            print("📝 Recognized text:\n\(recognizedText)")
+            
+            // PARSE EVENT INFO
+            if let event = parseEventFromText(recognizedText) {
+                print("🎉 Event detected: \(event.title) on \(event.date)")
+                await MainActor.run {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        detectedEvent = event
+                    }
+                }
+            } else {
+                print("❌ No event info parsed from text")
+            }
+        } catch {
+            print("❌ Error detecting text: \(error)")
+        }
+        
+        isDetectingEvent = false
+    }
+    
+    //============================================================================
+    // FUNCTION: PARSE EVENT FROM TEXT
+    //============================================================================
+    
+    private func parseEventFromText(_ text: String) -> DetectedEvent? {
+        print("🔍 Parsing text for event: \(text)")
+        
+        // COMPREHENSIVE DATE PATTERNS - SUPPORTS ALL POSSIBLE FORMATS!
+        let datePatterns = [
+            // ========== INDONESIAN FORMATS (HIGH PRIORITY) ==========
+            // With year: "31 Oktober 2026", "7 September 2026"
+            "\\d{1,2}\\s+(Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)\\s+\\d{4}",
+            
+            // Without year: "31 Oktober", "7 September"
+            "\\d{1,2}\\s+(Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)(?!\\s*\\d)",
+            
+            // With day name: "Senin, 31 Oktober 2026", "Jumat 15 Desember 2026"
+            "(Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu),?\\s+\\d{1,2}\\s+(Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember)\\s+\\d{4}",
+            
+            // ========== ENGLISH FORMATS ==========
+            // With day + full month + year: "Monday, 7 September 2024"
+            "(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\\s+\\d{1,2}(st|nd|rd|th)?\\s+[A-Z][a-z]+\\s+\\d{2,4}",
+            
+            // With day + abbr month + year: "Monday, Sep 7th 2024"
+            "(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}(st|nd|rd|th)?\\s+\\d{2,4}",
+            
+            // With day without year: "Monday, Aug 24th", "Friday, September 7th"
+            "(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}(st|nd|rd|th)?(?!\\s*\\d)",
+            
+            // With day without year (number first): "Monday, 24 Aug", "Friday, 7 September"
+            "(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\\s+\\d{1,2}(st|nd|rd|th)?\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?!\\s*\\d)",
+            
+            // Month + day + year: "Sep 7th 2024", "September 7 2024"
+            "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}(st|nd|rd|th)?\\s+\\d{2,4}",
+            
+            // Month + day (no year): "Sep 28th", "September 28", "Aug 24th"
+            "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{1,2}(st|nd|rd|th)?(?!\\s*\\d)",
+            
+            // Day + month + year: "7 Sep 2024", "7th September 2024"
+            "\\d{1,2}(st|nd|rd|th)?\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+\\d{2,4}",
+            
+            // Day + month (no year): "28 Sep", "24th August"
+            "\\d{1,2}(st|nd|rd|th)?\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*(?!\\s*\\d)",
+            
+            // ========== NUMERIC FORMATS ==========
+            // ISO format: "2024-09-07", "2024/09/07"
+            "\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}",
+            
+            // DD-MM-YYYY: "07-09-2024", "07/09/2024", "07.09.2024"
+            "\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{4}",
+            
+            // Two-digit year: "07-09-24", "07/09/24"
+            "\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{2}",
+            
+            // ========== SPECIAL FORMATS ==========
+            // "on Monday, 7 September", "on 31 Oktober"
+            "on\\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu),?\\s+\\d{1,2}(st|nd|rd|th)?\\s+[A-Z][a-z]+",
+            
+            // "tanggal 31 Oktober 2026"
+            "(tanggal|date)[:\\s]+\\d{1,2}\\s+[A-Z][a-z]+\\s*\\d{0,4}"
+        ]
+        
+        for pattern in datePatterns {
+            if let range = text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                var dateString = String(text[range])
+                print("📅 Found date pattern: \(dateString)")
+                
+                // CLEAN UP: REMOVE PREFIXES
+                dateString = dateString.replacingOccurrences(of: "^(on|tanggal|date)[:\\s]+", with: "", options: [.regularExpression, .caseInsensitive])
+                
+                // CLEAN UP: REMOVE DAY OF WEEK
+                dateString = dateString.replacingOccurrences(of: "^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Senin|Selasa|Rabu|Kamis|Jumat|Sabtu|Minggu),?\\s*", with: "", options: [.regularExpression, .caseInsensitive])
+                
+                // CLEAN UP: REMOVE ORDINAL SUFFIXES (st, nd, rd, th)
+                dateString = dateString.replacingOccurrences(of: "(\\d+)(st|nd|rd|th)", with: "$1", options: .regularExpression)
+                print("🧹 Cleaned date: \(dateString)")
+                
+                // EXTRACT TITLE (FIRST LINE OR BIGGEST TEXT)
+                let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
+                let title = lines.first ?? "Event from Photo"
+                
+                // PARSE DATE
+                if let date = parseDateString(dateString) {
+                    print("✅ Successfully parsed date: \(date)")
+                    return DetectedEvent(
+                        title: title,
+                        date: date,
+                        location: extractLocation(from: text),
+                        notes: text
+                    )
+                } else {
+                    print("❌ Failed to parse date string: \(dateString)")
+                }
+            }
+        }
+        
+        print("❌ No date pattern matched")
+        return nil
+    }
+    
+    //============================================================================
+    // FUNCTION: PARSE DATE STRING
+    //============================================================================
+    
+    private func parseDateString(_ dateString: String) -> Date? {
+        print("🔍 Trying to parse: \(dateString)")
+        
+        // ========== INDONESIAN MONTH DICTIONARY ==========
+        let indonesianMonths = [
+            "januari": 1, "februari": 2, "maret": 3, "april": 4,
+            "mei": 5, "juni": 6, "juli": 7, "agustus": 8,
+            "september": 9, "oktober": 10, "november": 11, "desember": 12,
+            // Abbreviated forms
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4,
+            "jun": 6, "jul": 7, "agu": 8, "ags": 8,
+            "sep": 9, "okt": 10, "nov": 11, "des": 12
+        ]
+        
+        // ========== TRY INDONESIAN WITH YEAR: "31 Oktober 2026" ==========
+        let indoWithYear = "(\\d{1,2})\\s+([A-Za-z]+)\\s+(\\d{4})"
+        if let range = dateString.range(of: indoWithYear, options: [.regularExpression, .caseInsensitive]) {
+            let matched = String(dateString[range])
+            let parts = matched.components(separatedBy: " ")
+            
+            if parts.count == 3,
+               let day = Int(parts[0]),
+               let month = indonesianMonths[parts[1].lowercased()],
+               let year = Int(parts[2]) {
+                
+                let calendar = Calendar.current
+                var components = DateComponents()
+                components.year = year
+                components.month = month
+                components.day = day
+                components.hour = 8
+                components.minute = 0
+                components.second = 0
+                
+                if let date = calendar.date(from: components) {
+                    print("✅ Matched Indonesian WITH year: \(matched) → \(date)")
+                    return date
+                }
+            }
+        }
+        
+        // ========== TRY INDONESIAN WITHOUT YEAR: "31 Oktober" ==========
+        let indoWithoutYear = "^(\\d{1,2})\\s+([A-Za-z]+)$"
+        if let range = dateString.range(of: indoWithoutYear, options: [.regularExpression, .caseInsensitive]) {
+            let matched = String(dateString[range])
+            let parts = matched.components(separatedBy: " ")
+            
+            if parts.count == 2,
+               let day = Int(parts[0]),
+               let month = indonesianMonths[parts[1].lowercased()] {
+                
+                let calendar = Calendar.current
+                let currentYear = calendar.component(.year, from: Date())
+                
+                var components = DateComponents()
+                components.year = currentYear
+                components.month = month
+                components.day = day
+                components.hour = 8
+                components.minute = 0
+                components.second = 0
+                
+                if let date = calendar.date(from: components) {
+                    print("✅ Matched Indonesian WITHOUT year: \(matched) → \(date)")
+                    return date
+                }
+            }
+        }
+        
+        // ========== ENGLISH FORMATS WITH YEAR ==========
+        let formatsWithYear = [
+            // Full month names
+            "MMMM d yyyy", "MMMM dd yyyy",
+            "d MMMM yyyy", "dd MMMM yyyy",
+            
+            // Abbreviated months
+            "MMM d yyyy", "MMM dd yyyy",
+            "d MMM yyyy", "dd MMM yyyy",
+            
+            // With separators
+            "dd-MM-yyyy", "dd/MM/yyyy", "dd.MM.yyyy",
+            "MM-dd-yyyy", "MM/dd/yyyy", "MM.dd.yyyy",
+            
+            // ISO format
+            "yyyy-MM-dd", "yyyy/MM/dd", "yyyy.MM.dd",
+            
+            // Two-digit year
+            "MMM d yy", "MMM dd yy",
+            "dd-MM-yy", "MM-dd-yy",
+            "dd/MM/yy", "MM/dd/yy"
+        ]
+        
+        for format in formatsWithYear {
+            let formatter = DateFormatter()
+            formatter.dateFormat = format
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            
+            if let date = formatter.date(from: dateString) {
+                // SET TIME TO 8:00 AM
+                let calendar = Calendar.current
+                var components = calendar.dateComponents([.year, .month, .day], from: date)
+                components.hour = 8
+                components.minute = 0
+                components.second = 0
+                
+                let finalDate = calendar.date(from: components) ?? date
+                print("✅ Matched English format: \(format) → \(finalDate)")
+                return finalDate
+            }
+        }
+        
+        // ========== ENGLISH FORMATS WITHOUT YEAR ==========
+        let formatsWithoutYear = [
+            "MMM d", "MMM dd",           // Sep 28
+            "d MMM", "dd MMM",           // 28 Sep
+            "MMMM d", "MMMM dd",         // September 28
+            "d MMMM", "dd MMMM"          // 28 September
+        ]
+        
+        for format in formatsWithoutYear {
+            let formatter = DateFormatter()
+            formatter.dateFormat = format
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            
+            if let dateWithoutYear = formatter.date(from: dateString) {
+                // GET CURRENT YEAR
+                let calendar = Calendar.current
+                let currentYear = calendar.component(.year, from: Date())
+                
+                // ADD CURRENT YEAR + SET TIME TO 8:00 AM
+                var components = calendar.dateComponents([.month, .day], from: dateWithoutYear)
+                components.year = currentYear
+                components.hour = 8
+                components.minute = 0
+                components.second = 0
+                
+                guard let dateThisYear = calendar.date(from: components) else { continue }
+                
+                print("✅ Matched English WITHOUT year: \(format) → \(dateThisYear)")
+                return dateThisYear
+            }
+        }
+        
+        print("❌ No format matched for: \(dateString)")
+        return nil
+    }
+    
+    //============================================================================
+    // FUNCTION: EXTRACT LOCATION
+    //============================================================================
+    
+    private func extractLocation(from text: String) -> String? {
+        // SIMPLE LOCATION DETECTION (BISA DIPERLUAS)
+        let locationKeywords = ["at ", "@ ", "location:", "venue:", "place:", "lokasi:", "tempat:"]
+        
+        for keyword in locationKeywords {
+            if let range = text.range(of: keyword, options: .caseInsensitive) {
+                let afterKeyword = text[range.upperBound...]
+                let location = afterKeyword.components(separatedBy: .newlines).first?
+                    .trimmingCharacters(in: .whitespaces)
+                
+                if let location = location, !location.isEmpty {
+                    return location
+                }
+            }
+        }
+        
+        return nil
+    }
+}
+
+//============================================================================
+// SHEET: ADD TO CALENDAR
+//============================================================================
+
+struct AddToCalendarSheet: View {
+    let asset: PHAsset
+    let detectedEvent: DetectedEvent?
+    @Binding var isPresented: Bool
+    
+    @State private var eventTitle: String
+    @State private var eventDate: Date
+    @State private var eventLocation: String
+    @State private var eventNotes: String
+    @State private var isSaving = false
+    @State private var scanError: String?
+    
+    init(asset: PHAsset, detectedEvent: DetectedEvent?, isPresented: Binding<Bool>) {
+        self.asset = asset
+        self.detectedEvent = detectedEvent
+        self._isPresented = isPresented
+        
+        // INITIALIZE WITH DETECTED VALUES OR DEFAULTS
+        if let event = detectedEvent {
+            _eventTitle = State(initialValue: event.title)
+            _eventDate = State(initialValue: event.date)
+            _eventLocation = State(initialValue: event.location ?? "")
+            _eventNotes = State(initialValue: event.notes ?? "")
+        } else {
+            _eventTitle = State(initialValue: "")
+            
+            // DEFAULT TO TODAY AT 8 AM
+            let calendar = Calendar.current
+            var components = calendar.dateComponents([.year, .month, .day], from: Date())
+            components.hour = 8
+            components.minute = 0
+            _eventDate = State(initialValue: calendar.date(from: components) ?? Date())
+            
+            _eventLocation = State(initialValue: "")
+            _eventNotes = State(initialValue: "")
+        }
+    }
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // PREVIEW IMAGE
+                    imagePreview
+                    
+                    // SCAN STATUS
+                    if detectedEvent != nil {
+                        scanSuccessMessage
+                    } else if let error = scanError {
+                        scanErrorMessage(error)
+                    } else {
+                        noDetectionMessage
+                    }
+                    
+                    // EDITABLE FIELDS
+                    VStack(spacing: 16) {
+                        // TITLE
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Event Title")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            TextField("e.g., Exhibition Opening", text: $eventTitle)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        
+                        // DATE
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Date & Time")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            DatePicker("", selection: $eventDate, displayedComponents: [.date, .hourAndMinute])
+                                .datePickerStyle(.compact)
+                                .labelsHidden()
+                        }
+                        
+                        // LOCATION
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Location (Optional)")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            TextField("e.g., MoMA Gallery", text: $eventLocation)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        
+                        // NOTES
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Notes (Optional)")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            TextEditor(text: $eventNotes)
+                                .frame(height: 100)
+                                .padding(8)
+                                .background(Color(.systemGray6))
+                                .cornerRadius(8)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical)
+            }
+            .navigationTitle("Add to Calendar")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        saveToCalendar()
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        } else {
+                            Text("Add")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(eventTitle.isEmpty || isSaving)
+                }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var imagePreview: some View {
+        if let image = loadThumbnail() {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(height: 200)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .cornerRadius(12)
+                .padding(.horizontal)
+        }
+    }
+    
+    @ViewBuilder
+    private var scanSuccessMessage: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.title2)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Event Detected!")
+                    .font(.subheadline.weight(.semibold))
+                Text("Review and edit the details below")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+        }
+        .padding()
+        .background(Color.green.opacity(0.1))
+        .cornerRadius(12)
+        .padding(.horizontal)
+    }
+    
+    @ViewBuilder
+    private var noDetectionMessage: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .foregroundStyle(.blue)
+                .font(.title2)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("No Event Detected")
+                    .font(.subheadline.weight(.semibold))
+                Text("Fill in the event details manually")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+        }
+        .padding()
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(12)
+        .padding(.horizontal)
+    }
+    
+    @ViewBuilder
+    private func scanErrorMessage(_ error: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.title2)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Scan Error")
+                    .font(.subheadline.weight(.semibold))
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+        }
+        .padding()
+        .background(Color.orange.opacity(0.1))
+        .cornerRadius(12)
+        .padding(.horizontal)
+    }
+    
+    private func loadThumbnail() -> UIImage? {
+        var thumbnail: UIImage?
+        let options = PHImageRequestOptions()
+        options.isSynchronous = true
+        options.deliveryMode = .highQualityFormat
+        
+        PHImageManager.default().requestImage(
+            for: asset,
+            targetSize: CGSize(width: 400, height: 400),
+            contentMode: .aspectFill,
+            options: options
+        ) { image, _ in
+            thumbnail = image
+        }
+        
+        return thumbnail
+    }
+    
+    private func saveToCalendar() {
+        isSaving = true
+        
+        let eventStore = EKEventStore()
+        
+        eventStore.requestFullAccessToEvents { granted, error in
+            guard granted, error == nil else {
+                print("❌ Calendar access denied")
+                DispatchQueue.main.async {
+                    isSaving = false
+                    scanError = "Calendar access denied"
+                }
+                return
+            }
+            
+            // CREATE EVENT
+            let calendarEvent = EKEvent(eventStore: eventStore)
+            calendarEvent.title = eventTitle
+            calendarEvent.startDate = eventDate
+            calendarEvent.endDate = eventDate.addingTimeInterval(3600) // 1 HOUR
+            calendarEvent.calendar = eventStore.defaultCalendarForNewEvents
+            
+            if !eventLocation.isEmpty {
+                calendarEvent.location = eventLocation
+            }
+            
+            if !eventNotes.isEmpty {
+                calendarEvent.notes = eventNotes
+            }
+            
+            // SAVE EVENT
+            do {
+                try eventStore.save(calendarEvent, span: .thisEvent)
+                
+                DispatchQueue.main.async {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    isSaving = false
+                    isPresented = false
+                }
+                
+                print("✅ Event added to calendar: \(eventTitle)")
+            } catch {
+                print("❌ Error saving event: \(error)")
+                DispatchQueue.main.async {
+                    isSaving = false
+                    scanError = "Failed to save event"
+                }
+            }
+        }
     }
 }
 

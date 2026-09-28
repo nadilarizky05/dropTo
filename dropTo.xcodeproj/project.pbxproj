@@ -6,19 +6,81 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		2E3EC9D6306260900073E118 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2E3EC9D5306260900073E118 /* WidgetKit.framework */; };
+		2E3EC9D8306260900073E118 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2E3EC9D7306260900073E118 /* SwiftUI.framework */; };
+		2E3EC9E7306260900073E118 /* AlbumWidgetExtensionExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 2E3EC9D3306260900073E118 /* AlbumWidgetExtensionExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2E3EC9E5306260900073E118 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2EA8E4CC3005BE910053FA40 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2E3EC9D2306260900073E118;
+			remoteInfo = AlbumWidgetExtensionExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2E3EC9EC306260900073E118 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				2E3EC9E7306260900073E118 /* AlbumWidgetExtensionExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		2E3EC9D3306260900073E118 /* AlbumWidgetExtensionExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AlbumWidgetExtensionExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		2E3EC9D5306260900073E118 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		2E3EC9D7306260900073E118 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		2E3EC9FD306265B60073E118 /* AlbumWidgetExtensionExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AlbumWidgetExtensionExtension.entitlements; sourceTree = "<group>"; };
 		2EA8E4D43005BE910053FA40 /* dropTo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = dropTo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2EB066C630636A3400B2E63A /* AlbumWidgetExtensionExtension-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "AlbumWidgetExtensionExtension-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2E3EC9F2306262720073E118 /* Exceptions for "dropTo" folder in "AlbumWidgetExtensionExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Shared/WidgetShared.swift,
+			);
+			target = 2E3EC9D2306260900073E118 /* AlbumWidgetExtensionExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		2E3EC9D9306260900073E118 /* AlbumWidgetExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AlbumWidgetExtension;
+			sourceTree = "<group>";
+		};
 		2EA8E4D63005BE910053FA40 /* dropTo */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2E3EC9F2306262720073E118 /* Exceptions for "dropTo" folder in "AlbumWidgetExtensionExtension" target */,
+			);
 			path = dropTo;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		2E3EC9D0306260900073E118 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2E3EC9D8306260900073E118 /* SwiftUI.framework in Frameworks */,
+				2E3EC9D6306260900073E118 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2EA8E4D13005BE910053FA40 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -29,10 +91,23 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2E3EC9D4306260900073E118 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2E3EC9D5306260900073E118 /* WidgetKit.framework */,
+				2E3EC9D7306260900073E118 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		2EA8E4CB3005BE910053FA40 = {
 			isa = PBXGroup;
 			children = (
+				2EB066C630636A3400B2E63A /* AlbumWidgetExtensionExtension-Info.plist */,
+				2E3EC9FD306265B60073E118 /* AlbumWidgetExtensionExtension.entitlements */,
 				2EA8E4D63005BE910053FA40 /* dropTo */,
+				2E3EC9D9306260900073E118 /* AlbumWidgetExtension */,
+				2E3EC9D4306260900073E118 /* Frameworks */,
 				2EA8E4D53005BE910053FA40 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +116,7 @@
 			isa = PBXGroup;
 			children = (
 				2EA8E4D43005BE910053FA40 /* dropTo.app */,
+				2E3EC9D3306260900073E118 /* AlbumWidgetExtensionExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,6 +124,27 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		2E3EC9D2306260900073E118 /* AlbumWidgetExtensionExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2E3EC9E8306260900073E118 /* Build configuration list for PBXNativeTarget "AlbumWidgetExtensionExtension" */;
+			buildPhases = (
+				2E3EC9CF306260900073E118 /* Sources */,
+				2E3EC9D0306260900073E118 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				2E3EC9D9306260900073E118 /* AlbumWidgetExtension */,
+			);
+			name = AlbumWidgetExtensionExtension;
+			packageProductDependencies = (
+			);
+			productName = AlbumWidgetExtensionExtension;
+			productReference = 2E3EC9D3306260900073E118 /* AlbumWidgetExtensionExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		2EA8E4D33005BE910053FA40 /* dropTo */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 2EA8E4DF3005BE920053FA40 /* Build configuration list for PBXNativeTarget "dropTo" */;
@@ -55,10 +152,12 @@
 				2EA8E4D03005BE910053FA40 /* Sources */,
 				2EA8E4D13005BE910053FA40 /* Frameworks */,
 				2EA8E4D23005BE910053FA40 /* Resources */,
+				2E3EC9EC306260900073E118 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				2E3EC9E6306260900073E118 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				2EA8E4D63005BE910053FA40 /* dropTo */,
@@ -80,6 +179,9 @@
 				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
+					2E3EC9D2306260900073E118 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 					2EA8E4D33005BE910053FA40 = {
 						CreatedOnToolsVersion = 26.6;
 					};
@@ -100,6 +202,7 @@
 			projectRoot = "";
 			targets = (
 				2EA8E4D33005BE910053FA40 /* dropTo */,
+				2E3EC9D2306260900073E118 /* AlbumWidgetExtensionExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -115,6 +218,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		2E3EC9CF306260900073E118 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		2EA8E4D03005BE910053FA40 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -124,7 +234,84 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		2E3EC9E6306260900073E118 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2E3EC9D2306260900073E118 /* AlbumWidgetExtensionExtension */;
+			targetProxy = 2E3EC9E5306260900073E118 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		2E3EC9E9306260900073E118 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = AlbumWidgetExtensionExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RL4D4674QY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
+				INFOPLIST_FILE = "AlbumWidgetExtensionExtension-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = AlbumWidgetExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dila.dropTo.AlbumWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2E3EC9EA306260900073E118 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = AlbumWidgetExtensionExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = RL4D4674QY;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_EXPAND_BUILD_SETTINGS = YES;
+				INFOPLIST_FILE = "AlbumWidgetExtensionExtension-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = AlbumWidgetExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dila.dropTo.AlbumWidgetExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		2EA8E4DD3005BE920053FA40 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -246,14 +433,18 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = dropTo/dropTo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = RL4D4674QY;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "dropTo needs access to your calendar to add events detected from photos";
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "dropTo needs permission to create calendar events from photos you view";
 				INFOPLIST_KEY_NSCameraUsageDescription = "dropTo needs the camera so you can take new photos directly into your albums.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dropTo needs the microphone to record audio when you take a video.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "dropTo saves new photos you take into your Photos library.";
@@ -294,14 +485,18 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = dropTo/dropTo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = RL4D4674QY;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "dropTo needs access to your calendar to add events detected from photos";
+				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "dropTo needs permission to create calendar events from photos you view";
 				INFOPLIST_KEY_NSCameraUsageDescription = "dropTo needs the camera so you can take new photos directly into your albums.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "dropTo needs the microphone to record audio when you take a video.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "dropTo saves new photos you take into your Photos library.";
@@ -340,6 +535,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		2E3EC9E8306260900073E118 /* Build configuration list for PBXNativeTarget "AlbumWidgetExtensionExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2E3EC9E9306260900073E118 /* Debug */,
+				2E3EC9EA306260900073E118 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		2EA8E4CF3005BE910053FA40 /* Build configuration list for PBXProject "dropTo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
