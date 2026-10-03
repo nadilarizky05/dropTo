@@ -154,8 +154,8 @@ struct AlbumWidgetView: View {
 
     @ViewBuilder
     private var logo: some View {
-        if UIImage(named: "DropToLogo") != nil {
-            Image("DropToLogo").resizable().scaledToFit()
+        if UIImage(named: "logo") != nil {
+            Image("logo").resizable().scaledToFit()
         } else {
             Image(systemName: "photo.stack.fill")
                 .resizable()
