@@ -1,38 +1,22 @@
-//
-//  AlbumWidget.swift
-//  AlbumWidgetExtension
-//
-
 import WidgetKit
 import SwiftUI
 import UIKit
 
-//============================================================================
-// WIDGET ENTRY
-//============================================================================
-
 struct AlbumWidgetEntry: TimelineEntry {
     let date: Date
-    let album: PinnedAlbumSnapshot?   // NIL = BELUM ADA ALBUM YANG DI-PIN
+    let album: PinnedAlbumSnapshot?
+    let coverImage: UIImage?
 }
 
-//============================================================================
-// TIMELINE PROVIDER
-//============================================================================
-
 struct AlbumWidgetProvider: TimelineProvider {
-
-    // PLACEHOLDER: JANGAN PAKAI ALBUM PALSU (ID-NYA NGGAK ADA DI APP)
     func placeholder(in context: Context) -> AlbumWidgetEntry {
-        AlbumWidgetEntry(date: .now, album: nil)
+        AlbumWidgetEntry(date: .now, album: nil, coverImage: nil)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (AlbumWidgetEntry) -> Void) {
         completion(loadEntry())
     }
 
-    // APP YANG NYURUH RELOAD SAAT PIN/RENAME,
-    // + CADANGAN: REFRESH SENDIRI TIAP 30 MENIT
     func getTimeline(in context: Context, completion: @escaping (Timeline<AlbumWidgetEntry>) -> Void) {
         let next = Calendar.current.date(byAdding: .minute, value: 30, to: .now)!
         completion(Timeline(entries: [loadEntry()], policy: .after(next)))
@@ -40,14 +24,17 @@ struct AlbumWidgetProvider: TimelineProvider {
 
     private func loadEntry() -> AlbumWidgetEntry {
         let album = PinnedAlbumSnapshot.load()
+        let cover = album.flatMap { _ in loadCoverImage() }
         print("📌 Widget load: \(album?.title ?? "belum ada album di-pin")")
-        return AlbumWidgetEntry(date: .now, album: album)
+        return AlbumWidgetEntry(date: .now, album: album, coverImage: cover)
+    }
+
+    private func loadCoverImage() -> UIImage? {
+        guard let url = WidgetShared.coverImageURL,
+              let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
     }
 }
-
-//============================================================================
-// WARNA
-//============================================================================
 
 private enum WidgetColors {
     static let blueTop      = Color(red: 0.23, green: 0.51, blue: 0.96)
@@ -57,23 +44,76 @@ private enum WidgetColors {
     static let paperPurple  = Color(red: 0.80, green: 0.74, blue: 0.98)
 }
 
-//============================================================================
-// WIDGET VIEW
-//============================================================================
-
 struct AlbumWidgetView: View {
     var entry: AlbumWidgetEntry
 
     var body: some View {
+        Group {
+            if let album = entry.album, let coverImage = entry.coverImage {
+                pinnedCoverView(album: album, coverImage: coverImage)
+            } else {
+                emptyOrNoCoverView
+            }
+        }
+        .widgetURL(entry.album.map { WidgetShared.cameraURL(for: $0.id) } ?? WidgetShared.homeURL)
+    }
+
+    private func pinnedCoverView(album: PinnedAlbumSnapshot, coverImage: UIImage) -> some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.title)
+                    .font(.system(size: 20, weight: .bold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+
+                if let date = album.lastPhotoDate {
+                    Text(Self.dateText(date))
+                        .font(.system(size: 11, weight: .semibold))
+                        .opacity(0.9)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "camera.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 38, height: 38)
+                .background(.white.opacity(0.3), in: Circle())
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .foregroundStyle(.white)
+        .containerBackground(for: .widget) {
+            ZStack {
+                Image(uiImage: coverImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.45)],
+                    startPoint: UnitPoint(x: 0.5, y: 0.5),
+                    endPoint: .bottom
+                )
+            }
+        }
+    }
+
+    private static func dateText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.dateFormat = "dd MMM yyyy"
+        return formatter.string(from: date).uppercased()
+    }
+
+    private var emptyOrNoCoverView: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
             Spacer(minLength: 6)
 
-            // JUDUL: NAMA ALBUM, ATAU AJAKAN PIN KALAU BELUM ADA
             Text(entry.album?.title ?? "No Album Yet")
-                .font(.system(size: 22, weight: .bold))
-                .lineLimit(2)
+                .font(.system(size: 20, weight: .bold))
+                .lineLimit(1)
                 .minimumScaleFactor(0.6)
 
             Text(entry.album == nil ? "Pin an album in dropTo" : "Every shot lands here")
@@ -100,11 +140,8 @@ struct AlbumWidgetView: View {
                 endPoint: .bottom
             )
         }
-        // ADA ALBUM → KAMERA DI ALBUM ITU. BELUM ADA → BUKA APP
-        .widgetURL(entry.album.map { WidgetShared.cameraURL(for: $0.id) } ?? WidgetShared.homeURL)
     }
 
-    // LOGO + "dropTo"
     private var header: some View {
         HStack(spacing: 6) {
             logo
@@ -115,7 +152,6 @@ struct AlbumWidgetView: View {
         }
     }
 
-    // PAKAI ASSET "DropToLogo" KALAU ADA, KALAU NGGAK ADA PAKAI SF SYMBOL
     @ViewBuilder
     private var logo: some View {
         if UIImage(named: "DropToLogo") != nil {
@@ -128,7 +164,6 @@ struct AlbumWidgetView: View {
         }
     }
 
-    // TOMBOL (VISUAL SAJA, SELURUH WIDGET BISA DI-TAP)
     private var pill: some View {
         HStack(spacing: 5) {
             Image(systemName: entry.album == nil ? "pin" : "camera")
@@ -147,10 +182,6 @@ struct AlbumWidgetView: View {
         )
     }
 }
-
-//============================================================================
-// FOLDER + LENSA KAMERA (POJOK KANAN BAWAH)
-//============================================================================
 
 struct FolderCameraBadge: View {
     var body: some View {
@@ -191,10 +222,6 @@ struct FolderCameraBadge: View {
     }
 }
 
-//============================================================================
-// WIDGET CONFIGURATION
-//============================================================================
-
 struct AlbumWidget: Widget {
     let kind: String = WidgetShared.widgetKind
 
@@ -211,6 +238,6 @@ struct AlbumWidget: Widget {
 #Preview(as: .systemSmall) {
     AlbumWidget()
 } timeline: {
-    AlbumWidgetEntry(date: .now, album: PinnedAlbumSnapshot(id: UUID(), title: "Academy Life", photoCount: 3))
-    AlbumWidgetEntry(date: .now, album: nil)
+    AlbumWidgetEntry(date: .now, album: PinnedAlbumSnapshot(id: UUID(), title: "Academy Life", photoCount: 3), coverImage: nil)
+    AlbumWidgetEntry(date: .now, album: nil, coverImage: nil)
 }

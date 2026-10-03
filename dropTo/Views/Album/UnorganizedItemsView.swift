@@ -1,225 +1,132 @@
-//
-//  UnorganizedItemsView.swift
-//  dropTo
-//
-//  Created by Nadila Rizky Amelia on 20/07/26.
-//
-//============================================================================
-// VIEW: UNORGANIZED ITEMS
-//============================================================================
-// HALAMAN FOTO/VIDEO YANG BELUM MASUK ALBUM MANAPUN DAN BELUM DIHAPUS
-
 import SwiftUI
 import Photos
 
 struct UnorganizedItemsView: View {
-    
-    //============================================================================
-    // PROPERTIES
-    //============================================================================
-    
-    @EnvironmentObject private var dataService: DataService // AKSES DATABASE
-    
-    @State private var selectedAsset: PHAsset?               // FOTO DIPILIH (NAVIGATION)
-    @State private var isSelecting = false                   // MODE SELECT ON/OFF
-    @State private var selectedIdentifiers: Set<String> = [] // LIST FOTO TERCENTANG
-    @State private var showMoveSheet = false                 // FLAG SHEET MOVE
-    @State private var showDeleteConfirmation = false        // FLAG ALERT DELETE
-    @State private var assets: [PHAsset] = []                // LIST FOTO/VIDEO UNORGANIZED
-    @State private var albums: [Album] = []                  // LIST ALBUM (BUAT CEK)
-    @State private var deletedItems: [DeletedItem] = []      // LIST FOTO DI TRASH (BUAT CEK)
+    @EnvironmentObject private var dataService: DataService
 
-    //============================================================================
-    // GRID LAYOUT
-    //============================================================================
-    // 4 KOLOM FOTO
-    
+    @State private var selectedAsset: PHAsset?
+    @State private var showSimilarPhotos = false
+    @State private var isSelecting = false
+    @State private var selectedIdentifiers: Set<String> = []
+    @State private var showMoveSheet = false
+    @State private var groupedAssets: [DayGroup] = []
+    @State private var albums: [Album] = []
+    @State private var deletedItems: [DeletedItem] = []
+
     private let columns = [
         GridItem(.flexible(), spacing: 2),
         GridItem(.flexible(), spacing: 2),
         GridItem(.flexible(), spacing: 2),
         GridItem(.flexible(), spacing: 2)
     ]
-    
-    //============================================================================
-    // COMPUTED PROPERTY: ORGANIZED IDENTIFIERS
-    //============================================================================
-    // SET SEMUA IDENTIFIER FOTO YANG SUDAH ADA DI ALBUM
-    
-    private var organizedIdentifiers: Set<String> {
-        Set(albums.flatMap(\.assetIdentifiers))
-    }
-    
-    //============================================================================
-    // COMPUTED PROPERTY: DELETED IDENTIFIERS
-    //============================================================================
-    // SET SEMUA IDENTIFIER FOTO YANG ADA DI TRASH
-    
-    private var deletedIdentifiers: Set<String> {
-        Set(deletedItems.map(\.assetIdentifier))
-    }
-    
-    //============================================================================
-    // FUNCTION: LOAD ASSETS
-    //============================================================================
-    // AMBIL SEMUA FOTO DI DEVICE → FILTER YANG BELUM DI ALBUM & BELUM DI TRASH
-    
+
+    private var allAssets: [PHAsset] { groupedAssets.flatMap(\.assets) }
+
     private func loadAssets() {
         albums = dataService.fetchAlbums()
         deletedItems = dataService.fetchDeletedItems()
-        assets = PhotoLibraryService.shared
+
+        let organized = Set(albums.flatMap(\.assetIdentifiers))
+        let deleted = Set(deletedItems.map(\.assetIdentifier))
+
+        groupedAssets = PhotoLibraryService.shared
             .fetchAllAssets()
-            .filter { !organizedIdentifiers.contains($0.localIdentifier) && !deletedIdentifiers.contains($0.localIdentifier) }
+            .filter { !organized.contains($0.localIdentifier) && !deleted.contains($0.localIdentifier) }
+            .groupedByDay()
     }
 
     var body: some View {
-        ScrollView {
-            if assets.isEmpty {
-                ContentUnavailableView(
-                    "All Organized!",
-                    systemImage: "checkmark.circle",
-                    description: Text("Every photo and video is filed into an album.")
-                )
-                .padding(.top, 80)
-            } else {
-                LazyVGrid(columns: columns, spacing: 2) {
-                    ForEach(assets, id: \.localIdentifier) { asset in
-                        AssetThumbnailView(asset: asset)
-                            .selectionOverlay(isSelecting: isSelecting, isSelected: selectedIdentifiers.contains(asset.localIdentifier))
-                            .dragToSelect(
-                                isSelecting: $isSelecting,
-                                selectedIdentifiers: $selectedIdentifiers,
-                                identifier: asset.localIdentifier
-                            )
-                            .onTapGesture {
-                                if isSelecting {
-                                    toggle(asset.localIdentifier)
-                                } else {
-                                    selectedAsset = asset
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    SimilarPhotosCard()
+                        .padding(.horizontal)
+                        .onTapGesture { showSimilarPhotos = true }
+
+                    if allAssets.isEmpty {
+                        ContentUnavailableView(
+                            "All Organized!",
+                            systemImage: "checkmark.circle",
+                            description: Text("Every photo and video is filed into an album.")
+                        )
+                        .padding(.top, 40)
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        ForEach(groupedAssets, id: \.day) { group in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(sectionTitle(for: group.day))
+                                    .font(.subheadline.weight(.semibold))
+                                    .padding(.horizontal)
+
+                                LazyVGrid(columns: columns, spacing: 2) {
+                                    ForEach(group.assets, id: \.localIdentifier) { asset in
+                                        AssetThumbnailView(asset: asset)
+                                            .selectionOverlay(isSelecting: isSelecting, isSelected: selectedIdentifiers.contains(asset.localIdentifier))
+                                            .dragToSelect(
+                                                isSelecting: $isSelecting,
+                                                selectedIdentifiers: $selectedIdentifiers,
+                                                identifier: asset.localIdentifier
+                                            )
+                                            .onTapGesture {
+                                                if !isSelecting { selectedAsset = asset }
+                                            }
+                                    }
                                 }
                             }
+                        }
                     }
                 }
+                .padding(.vertical)
+                .gridDragSelection(isSelecting: isSelecting, selected: $selectedIdentifiers)
             }
-        }
-        .safeAreaInset(edge: .bottom) {
-            if isSelecting {
-                selectionActionBar
+            .safeAreaBar(edge: .bottom) {
+                if isSelecting {
+                    SelectionActionBar(
+                        selectedCount: selectedIdentifiers.count,
+                        onMove: { showMoveSheet = true },
+                        onDelete: deleteSelectedItems
+                    )
+                }
             }
-        }
-        .navigationTitle("Unorganized Items")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(isSelecting) // DISABLE SWIPE BACK SAAT SELECT MODE
-        .toolbar {
-            if isSelecting {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        isSelecting = false
+            .navigationTitle("Unorganized")
+            .toolbar(isSelecting ? .hidden : .automatic, for: .tabBar)
+            .navigationBarTitleDisplayMode(.large)
+            .navigationBarBackButtonHidden(isSelecting)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSelecting ? "Cancel" : "Select") {
+                        isSelecting.toggle()
                         selectedIdentifiers.removeAll()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 17, weight: .semibold))
                     }
+                    .disabled(allAssets.isEmpty && !isSelecting)
                 }
             }
-            
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(isSelecting ? "Cancel" : "Select") {
-                    isSelecting.toggle()
+            .sheet(isPresented: $showMoveSheet) {
+                MoveToAlbumSheet(sourceAlbum: nil, identifiersToMove: Array(selectedIdentifiers), dataService: dataService) {
                     selectedIdentifiers.removeAll()
+                    isSelecting = false
+                    loadAssets()
                 }
-                .disabled(assets.isEmpty && !isSelecting)
             }
-        }
-        .sheet(isPresented: $showMoveSheet) {
-            MoveToAlbumSheet(sourceAlbum: nil, identifiersToMove: Array(selectedIdentifiers), dataService: dataService) {
-                selectedIdentifiers.removeAll()
-                isSelecting = false
+            .navigationDestination(item: $selectedAsset) { asset in
+                PhotoDetailView(assets: allAssets, startingAt: asset, mode: .browseOnly)
+            }
+            .navigationDestination(isPresented: $showSimilarPhotos) {
+                AllItemsView()
+            }
+            .onAppear {
+                loadAssets()
+            }
+            .onReceive(dataService.$lastUpdate) { _ in
                 loadAssets()
             }
         }
-        .navigationDestination(item: $selectedAsset) { asset in
-            PhotoDetailView(assets: assets, startingAt: asset, mode: .browseOnly)
-        }
-        .confirmationDialog(
-            "Delete \(selectedIdentifiers.count) item\(selectedIdentifiers.count > 1 ? "s" : "")?",
-            isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                deleteSelectedItems()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("These items will be moved to Recently Deleted.")
-        }
-        .onAppear {
-            loadAssets()
-        }
-        .onReceive(dataService.$lastUpdate) { _ in
-            loadAssets()
-        }
-    }
-    
-    //============================================================================
-    // SUBVIEW: SELECTION ACTION BAR
-    //============================================================================
-    // BAR DI BAWAH DENGAN DELETE & MOVE BUTTONS (GLASSY STYLE)
-    
-    private var selectionActionBar: some View {
-        HStack(spacing: 16) {
-            Text("\(selectedIdentifiers.count) selected")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-
-            // DELETE BUTTON (ICON HITAM, GLASSY BACKGROUND)
-            Button {
-                showDeleteConfirmation = true
-            } label: {
-                Image(systemName: "trash.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 56, height: 56)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(.white.opacity(0.3), lineWidth: 0.5)
-                    )
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-            }
-            .disabled(selectedIdentifiers.isEmpty)
-
-            // MOVE BUTTON (ICON HITAM, GLASSY BACKGROUND)
-            Button {
-                showMoveSheet = true
-            } label: {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 56, height: 56)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(.white.opacity(0.3), lineWidth: 0.5)
-                    )
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-            }
-            .disabled(selectedIdentifiers.isEmpty)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
     }
 
-    //============================================================================
-    // FUNCTION: TOGGLE SELECTION
-    //============================================================================
-    // CENTANG/UNCENTANG FOTO SAAT MODE SELECT AKTIF
-    
+    private func sectionTitle(for date: Date) -> String {
+        DayTitleFormatter.string(for: date)
+    }
+
     private func toggle(_ identifier: String) {
         withAnimation(.easeInOut(duration: 0.2)) {
             if selectedIdentifiers.contains(identifier) {
@@ -230,30 +137,50 @@ struct UnorganizedItemsView: View {
             }
         }
     }
-    
-    //============================================================================
-    // FUNCTION: DELETE SELECTED ITEMS
-    //============================================================================
-    // HAPUS FOTO/VIDEO YANG DIPILIH → PINDAH KE TRASH
-    
+
     private func deleteSelectedItems() {
-        for identifier in selectedIdentifiers {
-            dataService.softDelete(identifier, sourceAlbumID: nil)
-        }
-        
-        // HAPTIC FEEDBACK
+        dataService.softDelete(Array(selectedIdentifiers))
+
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        
-        // CLEANUP UI STATE
         selectedIdentifiers.removeAll()
         isSelecting = false
-        
-        // RELOAD DATA (PENTING! BIAR GRID UPDATE)
         loadAssets()
     }
 }
 
+private struct SimilarPhotosCard: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(.systemGray5))
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 56, height: 56)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Similar Photos")
+                    .font(.subheadline.weight(.semibold))
+                Text("Tap to review")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+    }
+}
+
 #Preview {
-    NavigationStack { UnorganizedItemsView() }
+    UnorganizedItemsView()
         .environmentObject(DataService())
 }

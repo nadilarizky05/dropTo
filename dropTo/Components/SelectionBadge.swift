@@ -25,14 +25,13 @@ struct SelectionBadge: View {
 struct SelectionOverlay: ViewModifier {
     let isSelecting: Bool
     let isSelected: Bool
-    
+
     func body(content: Content) -> some View {
         content
             .overlay(
                 (isSelecting && !isSelected) ? Color.black.opacity(0.35) : Color.clear
             )
             .overlay(
-                // BORDER KOTAK (Rectangle, bukan RoundedRectangle)
                 Rectangle()
                     .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 3)
             )

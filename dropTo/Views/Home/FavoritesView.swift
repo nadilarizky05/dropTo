@@ -1,8 +1,3 @@
-//
-//  FavoritesView.swift
-//  dropTo
-//
-
 import SwiftUI
 import Photos
 
@@ -11,14 +6,13 @@ struct FavoritesView: View {
     @StateObject private var libraryService = PhotoLibraryService.shared
     @State private var favoriteAssets: [PHAsset] = []
     @State private var selectedAsset: PHAsset?
-    @State private var refreshTimer: Timer?
-    
+
     private let columns: [GridItem] = [
         GridItem(.flexible(), spacing: 2),
         GridItem(.flexible(), spacing: 2),
         GridItem(.flexible(), spacing: 2)
     ]
-    
+
     var body: some View {
         Group {
             if favoriteAssets.isEmpty {
@@ -49,31 +43,25 @@ struct FavoritesView: View {
         }
         .task {
             loadFavorites()
-            // Setup periodic refresh untuk mendeteksi perubahan favorite status
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-                loadFavorites()
-            }
         }
-        .onDisappear {
-            refreshTimer?.invalidate()
-            refreshTimer = nil
+        .onChange(of: libraryService.libraryVersion) { _, _ in
+            loadFavorites()
         }
         .onReceive(dataService.$lastUpdate) { _ in
-            // Refresh saat ada perubahan (misal foto di-unfavorite)
             loadFavorites()
         }
     }
-    
+
     private var emptyState: some View {
         VStack(spacing: 16) {
             Image(systemName: "heart.slash")
                 .font(.system(size: 60))
                 .foregroundStyle(.secondary)
-            
+
             VStack(spacing: 8) {
                 Text("No Favorites Yet")
                     .font(.title2.weight(.semibold))
-                
+
                 Text("Tap the heart icon on any photo to add it to your favorites.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -83,25 +71,20 @@ struct FavoritesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
-    //============================================================================
-    // FUNCTION: LOAD FAVORITES
-    //============================================================================
-    // AMBIL SEMUA FOTO YANG SUDAH DI-FAVORITE DARI PHOTOS LIBRARY
-    
+
     private func loadFavorites() {
         guard libraryService.isAuthorized else { return }
-        
+
         let options = PHFetchOptions()
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
         options.predicate = NSPredicate(format: "isFavorite == YES")
-        
+
         let result = PHAsset.fetchAssets(with: options)
         var assets: [PHAsset] = []
         result.enumerateObjects { asset, _, _ in
             assets.append(asset)
         }
-        
+
         favoriteAssets = assets
     }
 }

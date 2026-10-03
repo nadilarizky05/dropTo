@@ -1,44 +1,42 @@
 import SwiftUI
 import Photos
 
-//============================================================================
-// COMPONENT: ASSET THUMBNAIL VIEW
-//============================================================================
-// REUSABLE COMPONENT BUAT TAMPILKAN THUMBNAIL FOTO/VIDEO DI GRID
-
 struct AssetThumbnailView: View {
-    
-    //============================================================================
-    // PHASE 1: PROPERTIES
-    //============================================================================
-    //PHAsset (Foto/Video yg mau ditampilkan), image (untuk thumbnail)
-    
     let asset: PHAsset
     var cornerRadius: CGFloat = 0
-    
+
     @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
-    
-    var body: some View {
-        GeometryReader { geo in
-            let side = geo.size.width
+    @State private var imageIdentifier: String?
 
-            ZStack {
-                // BACKGROUND + IMAGE
+    @State private var side: CGFloat = 0
+
+    private struct LoadKey: Hashable {
+        let identifier: String
+        let bucket: Int
+    }
+
+    private var loadKey: LoadKey {
+        LoadKey(identifier: asset.localIdentifier, bucket: Int((side * displayScale / 50).rounded(.up)))
+    }
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
                 ZStack {
                     Rectangle()
                         .fill(Color(.systemGray5))
 
-                    if let image {
+                    if let image, imageIdentifier == asset.localIdentifier {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
                     }
                 }
-                .frame(width: side, height: side)
-                .clipped()
-
-                // VIDEO OVERLAY (PLAY ICON + DURATION)
+                .allowsHitTesting(false)
+            }
+            .overlay {
                 if asset.mediaType == .video {
                     VStack(spacing: 0) {
                         HStack {
@@ -46,49 +44,40 @@ struct AssetThumbnailView: View {
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .shadow(color: .black.opacity(0.6), radius: 2, x: 0, y: 1)
-                                .padding(5)
-                            
+                                .padding(6)
+
                             Spacer()
                         }
-                        
+
                         Spacer()
-                        
+
                         HStack {
                             Spacer()
-                            
+
                             Text(durationString(asset.duration))
-                                .font(.system(size: 11, weight: .bold).monospacedDigit())
+                                .font(.system(size: 13, weight: .bold).monospacedDigit())
                                 .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(
-                                    Capsule()
-                                        .fill(.black.opacity(0.75))
-                                )
-                                .shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 1)
+                                .shadow(color: .black.opacity(0.7), radius: 2, x: 0, y: 1)
                                 .padding(.trailing, 7)
                         }
-                        .padding(.bottom, 4)
+                        .padding(.bottom, 5)
                     }
-                    .frame(width: side, height: side)
+                    .allowsHitTesting(false)
                 }
             }
-            .frame(width: side, height: side)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .task(id: asset.localIdentifier) {
-                // LOAD THUMBNAIL DENGAN UKURAN SESUAI DISPLAY SCALE
+            .contentShape(Rectangle())
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { side = $0 }
+            .task(id: loadKey) {
+                guard side > 0 else { return }
                 let pixelSize = CGSize(width: side * displayScale, height: side * displayScale)
-                image = await PhotoLibraryService.shared.loadThumbnail(for: asset, targetSize: pixelSize)
+                if let loaded = await PhotoLibraryService.shared.loadThumbnail(for: asset, targetSize: pixelSize) {
+                    image = loaded
+                    imageIdentifier = asset.localIdentifier
+                }
             }
-        }
-        .aspectRatio(1, contentMode: .fit)
     }
-    
-    //============================================================================
-    // PHASE 2: BUAT FUNCTION DURATION STRING
-    //============================================================================
-    // FORMAT DURASI VIDEO JADI "M:SS" (CONTOH: "3:45")
-    
+
     private func durationString(_ seconds: TimeInterval) -> String {
         let totalSeconds = Int(seconds.rounded())
         let minutes = totalSeconds / 60

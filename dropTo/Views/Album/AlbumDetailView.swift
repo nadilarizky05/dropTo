@@ -1,59 +1,29 @@
-//============================================================================
-// VIEW: DETAIL ALBUM
-//============================================================================
-// HALAMAN DETAIL ALBUM - TAMPIL FOTO/VIDEO DIKELOMPOKKAN PER HARI, ADA SELECT MODE DAN CAMERA BUTTON
-
 import SwiftUI
 import Photos
 import SwiftData
 
 struct AlbumDetailView: View {
-    
-    //============================================================================
-    // PROPERTIES
-    //============================================================================
-    
-    let album: Album                                        // ALBUM YANG DITAMPILKAN
-    @EnvironmentObject private var dataService: DataService // AKSES DATABASE
+    let album: Album
+    @EnvironmentObject private var dataService: DataService
+    @Environment(DeepLinkCoordinator.self) private var deepLinkCoordinator
 
-    
-    @State private var showCamera = false                   // FLAG BUKA/TUTUP KAMERA
-    @State private var selectedAsset: PHAsset?              // FOTO YANG DIPILIH (BUAT NAVIGATION)
-    @State private var isSelecting = false                  // MODE SELECT ON/OFF
-    @State private var selectedIdentifiers: Set<String> = [] // LIST FOTO TERCENTANG
-    @State private var showMoveSheet = false                 // FLAG SHEET MOVE
-    @State private var showDeleteConfirm = false             // FLAG KONFIRMASI DELETE
-    @State private var groupedAssets: [(day: Date, assets: [PHAsset])] = [] // FOTO PER HARI
-    
-    //============================================================================
-    // COMPUTED PROPERTY: CURRENT ALBUM
-    //============================================================================
-    // FETCH ALBUM TERBARU DARI DATABASE BIAR SELALU SYNC
-    
-    private var currentAlbum: Album {
-        dataService.fetchAlbums().first(where: { $0.id == album.id }) ?? album
-    }
-    
-    //============================================================================
-    // FUNCTION: LOAD ASSETS DAN GROUP PER HARI
-    //============================================================================
-    // AMBIL SEMUA FOTO/VIDEO DI ALBUM → KELOMPOKKAN PER TANGGAL (HARI)
-    
+    @State private var showCamera = false
+    @State private var albumChosenInCamera: UUID?
+    @State private var selectedAsset: PHAsset?
+    @State private var isSelecting = false
+    @State private var selectedIdentifiers: Set<String> = []
+    @State private var showMoveSheet = false
+    @State private var showAddFromUnorganized = false
+    @State private var groupedAssets: [DayGroup] = []
+
+    private var currentAlbum: Album { album }
+
     private func loadAssets() {
-        let assets = PhotoLibraryService.shared.fetchAssets(withIdentifiers: currentAlbum.assetIdentifiers)
-        let groups = Dictionary(grouping: assets) { asset in
-            Calendar.current.startOfDay(for: asset.creationDate ?? Date())
-        }
-        groupedAssets = groups
-            .map { (day: $0.key, assets: $0.value) }
-            .sorted { $0.day > $1.day }
+        groupedAssets = PhotoLibraryService.shared
+            .fetchAssets(withIdentifiers: currentAlbum.assetIdentifiers)
+            .groupedByDay()
     }
-    
-    //============================================================================
-    // GRID LAYOUT
-    //============================================================================
-    // 4 KOLOM FOTO
-    
+
     private let columns = [
         GridItem(.flexible(), spacing: 4),
         GridItem(.flexible(), spacing: 4),
@@ -65,7 +35,7 @@ struct AlbumDetailView: View {
         ScrollView {
             if currentAlbum.assetIdentifiers.isEmpty {
                 EmptyAlbumView()
-                    .padding(.top, 100)
+                    .containerRelativeFrame(.vertical)
             } else {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     ForEach(groupedAssets, id: \.day) { group in
@@ -83,11 +53,7 @@ struct AlbumDetailView: View {
                                         identifier: asset.localIdentifier
                                     )
                                     .onTapGesture {
-                                        if isSelecting {
-                                            toggle(asset.localIdentifier)
-                                        } else {
-                                            selectedAsset = asset
-                                        }
+                                        if !isSelecting { selectedAsset = asset }
                                     }
                             }
                         }
@@ -95,17 +61,33 @@ struct AlbumDetailView: View {
                     }
                 }
                 .padding(.vertical)
+                .gridDragSelection(isSelecting: isSelecting, selected: $selectedIdentifiers)
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if isSelecting { selectionActionBar }
-            else {
-                HStack { Spacer(); CameraFloatingButton { showCamera = true }; Spacer() }  // ← center
+        .safeAreaBar(edge: .bottom) {
+            if isSelecting {
+                SelectionActionBar(
+                    selectedCount: selectedIdentifiers.count,
+                    onMove: { showMoveSheet = true },
+                    onDelete: deleteSelected
+                )
+            } else {
+                HStack {
+                    AlbumActionButton(systemImage: "photo.stack", label: "Add from Unorganized") {
+                        showAddFromUnorganized = true
+                    }
+                    Spacer()
+                    AlbumActionButton(systemImage: "camera.fill", label: "Take Photo") {
+                        showCamera = true
+                    }
+                }
+                .padding(.horizontal, 28)
+                .padding(.bottom, 8)
             }
         }
         .navigationTitle(currentAlbum.title)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(isSelecting) // DISABLE SWIPE BACK SAAT SELECT MODE
+        .navigationBarBackButtonHidden(isSelecting)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
             if isSelecting {
@@ -119,7 +101,7 @@ struct AlbumDetailView: View {
                     }
                 }
             }
-            
+
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isSelecting ? "Cancel" : "Select") {
                     isSelecting.toggle()
@@ -128,30 +110,20 @@ struct AlbumDetailView: View {
                 .disabled(currentAlbum.assetIdentifiers.isEmpty && !isSelecting)
             }
         }
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { media in
-                Task {
-                    await dataService.saveCapturedMedia(media, toAlbumWithID: album.id)
-                }
+        .fullScreenCover(isPresented: $showCamera, onDismiss: openAlbumChosenInCamera) {
+            CameraPicker(dataService: dataService, initialAlbumID: album.id) { newAlbumID in
+                albumChosenInCamera = newAlbumID
             }
-            .ignoresSafeArea()
-        }
-        .confirmationDialog(
-            "Delete \(selectedIdentifiers.count) item\(selectedIdentifiers.count > 1 ? "s" : "")?",
-            isPresented: $showDeleteConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                deleteSelected()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("These items will be moved to Recently Deleted.")
         }
         .sheet(isPresented: $showMoveSheet) {
             MoveToAlbumSheet(sourceAlbum: currentAlbum, identifiersToMove: Array(selectedIdentifiers), dataService: dataService) {
                 selectedIdentifiers.removeAll()
                 isSelecting = false
+            }
+        }
+        .sheet(isPresented: $showAddFromUnorganized) {
+            AddFromUnorganizedSheet(album: currentAlbum, dataService: dataService) {
+                loadAssets()
             }
         }
         .navigationDestination(item: $selectedAsset) { asset in
@@ -164,61 +136,13 @@ struct AlbumDetailView: View {
             loadAssets()
         }
     }
-    
-    private var selectionActionBar: some View {
-        HStack(spacing: 16) {
-            Text("\(selectedIdentifiers.count) selected")
-                .font(.callout)
-                .foregroundStyle(.secondary)
 
-            Spacer()
-
-            // DELETE BUTTON (ICON HITAM, GLASSY BACKGROUND)
-            Button {
-                showDeleteConfirm = true
-            } label: {
-                Image(systemName: "trash.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 56, height: 56)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(.white.opacity(0.3), lineWidth: 0.5)
-                    )
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-            }
-            .disabled(selectedIdentifiers.isEmpty)
-
-            // MOVE BUTTON (ICON HITAM, GLASSY BACKGROUND)
-            Button {
-                showMoveSheet = true
-            } label: {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 56, height: 56)
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(
-                        Circle()
-                            .stroke(.white.opacity(0.3), lineWidth: 0.5)
-                    )
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-            }
-            .disabled(selectedIdentifiers.isEmpty)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
+    private func openAlbumChosenInCamera() {
+        defer { albumChosenInCamera = nil }
+        guard let chosen = albumChosenInCamera, chosen != album.id else { return }
+        deepLinkCoordinator.albumToOpen = chosen
     }
 
-    
-    //============================================================================
-    // FUNCTION: TOGGLE SELECTION
-    //============================================================================
-    // CENTANG/UNCENTANG FOTO SAAT MODE SELECT AKTIF
     private func toggle(_ identifier: String) {
         withAnimation(.easeInOut(duration: 0.2)) {
             if selectedIdentifiers.contains(identifier) {
@@ -229,54 +153,46 @@ struct AlbumDetailView: View {
             }
         }
     }
-    
-    //============================================================================
-    // FUNCTION: DELETE SELECTED ASSETS
-    //============================================================================
-    // SOFT DELETE - PINDAH KE TRASH (RECENTLY DELETED), BUKAN HAPUS PERMANEN
-    
+
     private func deleteSelected() {
         let identifiersToDelete = Array(selectedIdentifiers)
-        
-        // SOFT DELETE → PINDAH KE TRASH
-        for identifier in identifiersToDelete {
-            dataService.softDelete(identifier, sourceAlbumID: currentAlbum.id)
-        }
-        
-        // FEEDBACK & CLEANUP
+
+        dataService.softDelete(identifiersToDelete, sourceAlbumID: currentAlbum.id)
+
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         selectedIdentifiers.removeAll()
         isSelecting = false
         loadAssets()
     }
-    
-    //============================================================================
-    // FUNCTION: FORMAT TANGGAL SECTION HEADER
-    //============================================================================
-    // FORMAT TANGGAL JADI "Wed, 01 Sep"
+
     private func sectionTitle(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, dd MMM"
-        return formatter.string(from: date)
+        DayTitleFormatter.string(for: date)
     }
 }
 
 private struct EmptyAlbumView: View {
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 44))
+                .font(.system(size: 40))
                 .foregroundStyle(.secondary)
             Text("No items yet")
                 .font(.headline)
-            Text("Take a photo or video, or drag items here")
+            Text("Already snapped something with the regular camera?\nAdd it here, or take a new one now.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.9)
         }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .offset(y: -60)
     }
 }
 
-private struct CameraFloatingButton: View {
+private struct AlbumActionButton: View {
+    let systemImage: String
+    let label: String
     let action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -294,13 +210,14 @@ private struct CameraFloatingButton: View {
                         ),
                         lineWidth: 1.5
                     )
-                Image(systemName: "camera.fill")
+                Image(systemName: systemImage)
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.white)
             }
             .frame(width: 64, height: 64)
-            .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+            .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
         }
+        .accessibilityLabel(label)
     }
 }
 
@@ -312,5 +229,6 @@ extension PHAsset: @retroactive Identifiable {
     NavigationStack {
         AlbumDetailView(album: Album(title: "Coding"))
             .environmentObject(DataService())
+            .environment(DeepLinkCoordinator())
     }
 }
