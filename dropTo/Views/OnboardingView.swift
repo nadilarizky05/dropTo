@@ -64,7 +64,7 @@ struct OnboardingView: View {
             }
             .buttonStyle(.plain)
             .padding(.top, 22)
-            .padding(.bottom, 28)
+            .padding(.bottom, 44)
         }
         .background(Color(.systemBackground))
     }
@@ -78,30 +78,36 @@ private struct OnboardingPageView: View {
     let page: OnboardingPage
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 20)
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
 
-            Image(page.imageName)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: 390)
-                .padding(.horizontal, 20)
+                Image(page.imageName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: geo.size.height * 0.50)
+                    .padding(.horizontal, 24)
 
-            Spacer(minLength: 24)
+                Spacer(minLength: 15)
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text(page.title)
-                    .font(.title2.bold())
-                    .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(page.title)
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                Text(page.subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    Text(page.subtitle)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 32)
+
+                Spacer(minLength: 16)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 32)
-
-            Spacer(minLength: 12)
+            .frame(width: geo.size.width, height: geo.size.height)
         }
     }
 }

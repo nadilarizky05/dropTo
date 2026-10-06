@@ -23,36 +23,31 @@ struct RecentlyDeletedView: View {
     }
 
     var body: some View {
-        ScrollView {
+        Group {
             if assets.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.secondary)
-                    Text("No Recently Deleted Items")
-                        .font(.headline)
-                }
-                .padding(.top, 100)
+                emptyState
             } else {
-                LazyVGrid(columns: columns, spacing: 4) {
-                    ForEach(assets, id: \.localIdentifier) { asset in
-                        AssetThumbnailView(asset: asset)
-                            .selectionOverlay(isSelecting: isSelecting, isSelected: selectedIdentifiers.contains(asset.localIdentifier))
-                            .dragToSelect(
-                                isSelecting: .constant(isSelecting),
-                                selectedIdentifiers: $selectedIdentifiers,
-                                identifier: asset.localIdentifier
-                            )
-                            .onTapGesture {
-                                if !isSelecting { selectedAsset = asset }
-                            }
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 4) {
+                        ForEach(assets, id: \.localIdentifier) { asset in
+                            AssetThumbnailView(asset: asset)
+                                .selectionOverlay(isSelecting: isSelecting, isSelected: selectedIdentifiers.contains(asset.localIdentifier))
+                                .dragToSelect(
+                                    isSelecting: .constant(isSelecting),
+                                    selectedIdentifiers: $selectedIdentifiers,
+                                    identifier: asset.localIdentifier
+                                )
+                                .onTapGesture {
+                                    if !isSelecting { selectedAsset = asset }
+                                }
+                        }
                     }
+                    .gridDragSelection(isSelecting: isSelecting, selected: $selectedIdentifiers)
                 }
-                .gridDragSelection(isSelecting: isSelecting, selected: $selectedIdentifiers)
             }
         }
         .navigationTitle("Recently Deleted")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             if isSelecting && !assets.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -102,7 +97,20 @@ struct RecentlyDeletedView: View {
     private var allSelected: Bool {
         !assets.isEmpty && selectedIdentifiers.count == assets.count
     }
-
+    
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "trash")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text("No Recently Deleted Items")
+                .font(.headline)
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .offset(y: -60)
+    }
+    
     private var targetIdentifiers: [String] {
         selectedIdentifiers.isEmpty ? assets.map(\.localIdentifier) : Array(selectedIdentifiers)
     }

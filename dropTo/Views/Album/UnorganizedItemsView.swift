@@ -76,9 +76,11 @@ struct UnorganizedItemsView: View {
                         }
                     }
                 }
-                .padding(.vertical)
+                .padding(.bottom)
                 .gridDragSelection(isSelecting: isSelecting, selected: $selectedIdentifiers)
             }
+            .scrollEdgeEffectStyle(.hard, for: .top)
+            .safeAreaBar(edge: .top) { header }
             .safeAreaBar(edge: .bottom) {
                 if isSelecting {
                     SelectionActionBar(
@@ -88,19 +90,8 @@ struct UnorganizedItemsView: View {
                     )
                 }
             }
-            .navigationTitle("Unorganized")
+            .toolbar(.hidden, for: .navigationBar)
             .toolbar(isSelecting ? .hidden : .automatic, for: .tabBar)
-            .navigationBarTitleDisplayMode(.large)
-            .navigationBarBackButtonHidden(isSelecting)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(isSelecting ? "Cancel" : "Select") {
-                        isSelecting.toggle()
-                        selectedIdentifiers.removeAll()
-                    }
-                    .disabled(allAssets.isEmpty && !isSelecting)
-                }
-            }
             .sheet(isPresented: $showMoveSheet) {
                 MoveToAlbumSheet(sourceAlbum: nil, identifiersToMove: Array(selectedIdentifiers), dataService: dataService) {
                     selectedIdentifiers.removeAll()
@@ -122,6 +113,41 @@ struct UnorganizedItemsView: View {
             }
         }
     }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text(isSelecting ? selectionTitle : "Unorganized")
+                .font(.largeTitle.bold())
+                .contentTransition(.numericText())
+                .animation(.snappy, value: selectedIdentifiers.count)
+
+            Spacer(minLength: 8)
+
+            Button(isSelecting ? "Cancel" : "Select") {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSelecting.toggle()
+                    selectedIdentifiers.removeAll()
+                }
+            }
+            .font(.headline)
+            .buttonStyle(.glass)
+            .controlSize(.large)
+            .disabled(allAssets.isEmpty && !isSelecting)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 16)
+    }
+
+    private var selectionTitle: String {
+        selectedIdentifiers.isEmpty
+            ? "Select Items"
+            : "\(selectedIdentifiers.count) Selected"
+    }
+
+    // MARK: - Helpers
 
     private func sectionTitle(for date: Date) -> String {
         DayTitleFormatter.string(for: date)

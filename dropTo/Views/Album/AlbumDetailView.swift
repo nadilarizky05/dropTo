@@ -32,36 +32,38 @@ struct AlbumDetailView: View {
     ]
 
     var body: some View {
-        ScrollView {
+        Group {
             if currentAlbum.assetIdentifiers.isEmpty {
                 EmptyAlbumView()
-                    .containerRelativeFrame(.vertical)
             } else {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    ForEach(groupedAssets, id: \.day) { group in
-                        Text(sectionTitle(for: group.day))
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        ForEach(groupedAssets, id: \.day) { group in
+                            Text(sectionTitle(for: group.day))
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal)
 
-                        LazyVGrid(columns: columns, spacing: 4) {
-                            ForEach(group.assets, id: \.localIdentifier) { asset in
-                                AssetThumbnailView(asset: asset)
-                                    .selectionOverlay(isSelecting: isSelecting, isSelected: selectedIdentifiers.contains(asset.localIdentifier))
-                                    .dragToSelect(
-                                        isSelecting: $isSelecting,
-                                        selectedIdentifiers: $selectedIdentifiers,
-                                        identifier: asset.localIdentifier
-                                    )
-                                    .onTapGesture {
-                                        if !isSelecting { selectedAsset = asset }
-                                    }
+                            LazyVGrid(columns: columns, spacing: 4) {
+                                ForEach(group.assets, id: \.localIdentifier) { asset in
+                                    AssetThumbnailView(asset: asset)
+                                        .selectionOverlay(isSelecting: isSelecting, isSelected: selectedIdentifiers.contains(asset.localIdentifier))
+                                        .dragToSelect(
+                                            isSelecting: $isSelecting,
+                                            selectedIdentifiers: $selectedIdentifiers,
+                                            identifier: asset.localIdentifier
+                                        )
+                                        .onTapGesture {
+                                            if !isSelecting { selectedAsset = asset }
+                                        }
+                                }
                             }
+                            .padding(.horizontal, 2)
                         }
-                        .padding(.horizontal, 2)
                     }
+                    .padding(.top, 4)
+                    .padding(.bottom)
+                    .gridDragSelection(isSelecting: isSelecting, selected: $selectedIdentifiers)
                 }
-                .padding(.vertical)
-                .gridDragSelection(isSelecting: isSelecting, selected: $selectedIdentifiers)
             }
         }
         .safeAreaBar(edge: .bottom) {
@@ -86,7 +88,7 @@ struct AlbumDetailView: View {
             }
         }
         .navigationTitle(currentAlbum.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .navigationBarBackButtonHidden(isSelecting)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {

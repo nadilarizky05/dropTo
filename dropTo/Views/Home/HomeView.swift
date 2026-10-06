@@ -52,7 +52,7 @@ struct HomeView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text("dropTo")
+            Text("Your Album")
                 .font(.largeTitle.bold())
 
             Spacer(minLength: 8)
